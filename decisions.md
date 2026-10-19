@@ -45,5 +45,6 @@ PENDING · pod .env: SONIOX_API_KEY (and drop STT_PROVIDER or set STT_CHAIN=soni
 2026-10-20 · all three in one commit ("Latency settings…") · `git revert` it, or set the env values above on the pod
 2026-10-20 · claim "the call with our team is free" (claims_*.md + meeting pitch, it/en) · Prateek signed off
 2026-10-20 · repo: github.com/prateek-emergent/ai-sdr (private); commit 1 = pod snapshot b7baff2, changes in revertable commits · Prateek
+2026-10-20 · bump backend/ai_sdr/VERSION (= last code commit) on every push · pod supervisor restarts the worker only when VERSION or .env changes; /health shows it
 PENDING · legal: dial Italian numbers only if customer-provided; check Registro Pubblico delle Opposizioni · GDPR / Italian telemarketing rules
 PENDING · rotate HubSpot private-app token · pasted in chat
