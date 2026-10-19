@@ -23,5 +23,8 @@ Decisions and their reasons: `decisions.md`. In `backend/.env` (never committed)
 | `SONIOX_MAX_ENDPOINT_DELAY_MS` | `500` | How soon Soniox makes words final (500–3000). |
 | `FILLER_DELAY_S` | `0.8` | Silent seconds into a slow calendar step before "one moment…". |
 | `TTS_PRONUNCIATIONS_IT` / `_EN` | empty | JSON `{"written": "spoken"}` for words the voice says wrong. |
+| `TTS_MIN_SENTENCE_LEN` | `8` (was 20) | Shortest piece sent to the voice on its own. Unproven: revert with `20`. |
+| `INTERRUPTION_MIN_S` | `0.3` (was 0.5) | Speech needed before Giulia stops talking. Unproven: revert with `0.5`. |
+| `LLM_MAX_OUTPUT_TOKENS` | `400` | Cap on one reply. Unproven: `0` turns the cap off. |
 
 Before every push, from `backend/`: `python -m pytest` and `python -m ai_sdr.agent.prompt_check` (the Italian and English prompts must stay in step).

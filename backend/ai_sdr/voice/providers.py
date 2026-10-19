@@ -132,20 +132,22 @@ class Voices:
         return self._built[language]
 
 
-def _one_llm(route: LLMRoute) -> llm.LLM:
+def _one_llm(route: LLMRoute, max_tokens: int = 0) -> llm.LLM:
     # the per-attempt time limit comes from the fallback adapter (attempt_timeout); this is only a backstop
     timeout = httpx.Timeout(30.0, connect=5.0)
+    cap = max_tokens or NOT_GIVEN   # 0 = no cap (LLM_MAX_OUTPUT_TOKENS)
     if route.name == "litellm":
-        return lk_openai.LLM(model=route.model, base_url=route.base_url, api_key=route.api_key, timeout=timeout)
+        return lk_openai.LLM(model=route.model, base_url=route.base_url, api_key=route.api_key, timeout=timeout,
+                             max_completion_tokens=cap)
     if route.name == "emergent":  # Emergent universal key: only reachable from Emergent's own servers
         return lk_openai.LLM(model=route.model, base_url=proxy_url() + "/llm", api_key=route.api_key,
-                             timeout=timeout)
-    return lk_anthropic.LLM(model=route.model, api_key=route.api_key)
+                             timeout=timeout, max_completion_tokens=cap)
+    return lk_anthropic.LLM(model=route.model, api_key=route.api_key, max_tokens=cap)
 
 
 def build_llm(cfg: VoiceConfig) -> llm.LLM:
     """Routes in order. A route that sends nothing for attempt_timeout seconds is abandoned for the next one; with a
     single route it is retried once (a fresh request usually answers in about a second: 16 Oct TTFT p50 1.06 s)."""
-    models = [_one_llm(r) for r in cfg.llm_routes]
+    models = [_one_llm(r, cfg.llm_max_output_tokens) for r in cfg.llm_routes]
     return llm.FallbackAdapter(models, attempt_timeout=cfg.llm_attempt_timeout,
                                max_retry_per_llm=1 if len(models) == 1 else 0, retry_interval=0.1)

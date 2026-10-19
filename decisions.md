@@ -39,7 +39,10 @@
 2026-10-20 · demo page: IT/EN switch + optional app name · team tests English and the account-aware opener
 2026-10-20 · `python -m pytest` + `python -m ai_sdr.agent.prompt_check` before every push · catch drift locally; the pod is the live test
 PENDING · pod .env: SONIOX_API_KEY (and drop STT_PROVIDER or set STT_CHAIN=soniox,deepgram), ELEVENLABS_VOICE_ID_EN · else Deepgram / one voice
-PENDING · Phase 1 settings not touched: TTS_MIN_SENTENCE_LEN 20→8, INTERRUPTION_MIN_S 0.5→0.3, max tokens ~400 · need a go-ahead
+2026-10-20 · TTS_MIN_SENTENCE_LEN 20 → 8 · short replies waited 0.18–0.65 s for a 2nd sentence · UNPROVEN, revert: TTS_MIN_SENTENCE_LEN=20
+2026-10-20 · INTERRUPTION_MIN_S 0.5 → 0.3 · barge-in stop 1.35 s · UNPROVEN (watch mid-line stops), revert: INTERRUPTION_MIN_S=0.5
+2026-10-20 · LLM output cap 400 tokens (was none / 1024) · turns ≤25 words; stops runaway replies · UNPROVEN, revert: LLM_MAX_OUTPUT_TOKENS=0
+2026-10-20 · all three in one commit ("Latency settings…") · `git revert` it, or set the env values above on the pod
 PENDING · "the call is free" claim → add to claims_*.md · claims need Prateek's sign-off
 PENDING · legal: dial Italian numbers only if customer-provided; check Registro Pubblico delle Opposizioni · GDPR / Italian telemarketing rules
 PENDING · rotate HubSpot private-app token · pasted in chat

@@ -91,6 +91,7 @@ class VoiceConfig:
     # language model: routes tried in order; each attempt gets attempt_timeout seconds of silence before the next
     llm_routes: tuple[LLMRoute, ...]
     llm_attempt_timeout: float
+    llm_max_output_tokens: int          # cap on one reply (0 = no cap)
 
     # turn-taking (explicit: the library picks different defaults per run mode)
     turn_detector_version: str          # v1 (LiveKit cloud) | v1-mini (local)
@@ -142,7 +143,7 @@ class VoiceConfig:
             "deepgram_voices": dict(self.deepgram_voices),
             "pronunciations": {lang: len(table) for lang, table in self.pronunciations.items()},
             "llm_routes": [f"{r.name}:{r.model}" for r in self.llm_routes],
-            "llm_attempt_timeout": self.llm_attempt_timeout,
+            "llm_attempt_timeout": self.llm_attempt_timeout, "llm_max_output_tokens": self.llm_max_output_tokens,
             "turn_detector": self.turn_detector_version,
             "endpointing": [self.endpointing_min, self.endpointing_max],
             "interruption": {"mode": self.interruption_mode, "min_duration": self.interruption_min_duration,
@@ -242,13 +243,18 @@ def load() -> VoiceConfig:
         pronunciations=_pronunciations(langs),
         llm_routes=_llm_routes(),
         llm_attempt_timeout=_float("LLM_ATTEMPT_TIMEOUT_S", 4.0),
+        # 20 Oct (approved, unproven): turns are meant to be under ~25 words, so 400 tokens is ample for a reply plus a
+        # tool call and stops a runaway answer. Was: none on the OpenAI-format routes, 1024 on Anthropic. 0 = no cap.
+        llm_max_output_tokens=_int("LLM_MAX_OUTPUT_TOKENS", 400),
         turn_detector_version=_env("TURN_DETECTOR", "v1"),
         endpointing_min=_float("ENDPOINTING_MIN_S", 0.3),
         # longest wait for "have they finished?" when the turn model is unsure. 2.5 s (library default) hit in ~1 of 9
         # turns on preview (17 Oct suite) and made the slowest replies; 1.8 s approved by the user, measured by the probe
         endpointing_max=_float("ENDPOINTING_MAX_S", 1.8),
         interruption_mode=_env("INTERRUPTION_MODE", "adaptive"),
-        interruption_min_duration=_float("INTERRUPTION_MIN_S", 0.5),
+        # 20 Oct (approved, unproven): 0.5 -> 0.3 s of the person's speech before she stops, to cut the measured 1.35 s
+        # barge-in stop. Watch agent_mid_line_stops / false_interruptions in the call reports; revert with 0.5.
+        interruption_min_duration=_float("INTERRUPTION_MIN_S", 0.3),
         # 17 Oct: a 0.13 s wordless sound 0.6 s into her line froze her for 2.2 s (real call; probe reproduced 3/3).
         # Cause: for the first 1.0 s of each line LiveKit lets plain VAD decide interruptions (backchannel_boundary
         # start), and any sound pauses her. Measured on the same machine (probe, 3 calls each):
@@ -267,7 +273,8 @@ def load() -> VoiceConfig:
         preemptive_max_speech=_float("PREEMPTIVE_MAX_SPEECH_S", 10.0),
         # LiveKit's sentence splitter default 20: "Got it." (7 chars) waits for the next sentence before the voice
         # starts (19 Oct prod: 0.18-0.65 s per turn). Deepgram's voice streams word by word and ignores this.
-        tts_min_sentence_len=_int("TTS_MIN_SENTENCE_LEN", 20),
+        # 20 Oct (approved, unproven): 20 -> 8. Risk: choppier prosody on very short pieces; revert with 20.
+        tts_min_sentence_len=_int("TTS_MIN_SENTENCE_LEN", 8),
         aec_warmup=None if _env("AEC_WARMUP_S", "3.0") in ("off", "0") else _float("AEC_WARMUP_S", 3.0),
         user_away_timeout=s.silence_check_after_s,
         # Silero's default (0.55 s) is the real end-of-turn floor in 1.8.8: the turn decision only runs once Silero says
@@ -359,6 +366,8 @@ def validate(cfg: VoiceConfig) -> None:
         problems.append("need 0 < ENDPOINTING_MIN_S < ENDPOINTING_MAX_S <= 6")
     if cfg.llm_attempt_timeout < 1:
         problems.append("LLM_ATTEMPT_TIMEOUT_S must be >= 1")
+    if 0 < cfg.llm_max_output_tokens < 100:
+        problems.append("LLM_MAX_OUTPUT_TOKENS must be 0 (no cap) or >= 100 (a reply plus a tool call)")
     if cfg.max_sessions < 1:
         problems.append("MAX_SESSIONS must be >= 1")
     if cfg.report_sink not in ("file", "mongodb"):
