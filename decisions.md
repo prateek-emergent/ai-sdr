@@ -43,6 +43,7 @@ PENDING · pod .env: SONIOX_API_KEY (and drop STT_PROVIDER or set STT_CHAIN=soni
 2026-10-20 · INTERRUPTION_MIN_S 0.5 → 0.3 · barge-in stop 1.35 s · UNPROVEN (watch mid-line stops), revert: INTERRUPTION_MIN_S=0.5
 2026-10-20 · LLM output cap 400 tokens (was none / 1024) · turns ≤25 words; stops runaway replies · UNPROVEN, revert: LLM_MAX_OUTPUT_TOKENS=0
 2026-10-20 · all three in one commit ("Latency settings…") · `git revert` it, or set the env values above on the pod
-PENDING · "the call is free" claim → add to claims_*.md · claims need Prateek's sign-off
+2026-10-20 · claim "the call with our team is free" (claims_*.md + meeting pitch, it/en) · Prateek signed off
+2026-10-20 · repo: github.com/prateek-emergent/ai-sdr (private); commit 1 = pod snapshot b7baff2, changes in revertable commits · Prateek
 PENDING · legal: dial Italian numbers only if customer-provided; check Registro Pubblico delle Opposizioni · GDPR / Italian telemarketing rules
 PENDING · rotate HubSpot private-app token · pasted in chat
