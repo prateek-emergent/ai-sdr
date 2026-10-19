@@ -123,8 +123,12 @@ class Settings:
 
     # HubSpot (dry-run unless HUBSPOT_WRITE=1, same convention as outbound-hubspot)
     hubspot_token: str | None = field(default_factory=lambda: _env("HUBSPOT_API_KEY"))
+    # the customer card is read from HubSpot while the phone rings; past this the call goes ahead without it
+    card_timeout_s: float = field(default_factory=lambda: float(_env("CARD_TIMEOUT_S", "3")))
     hubspot_write: bool = field(default_factory=lambda: _bool("HUBSPOT_WRITE"))
     hubspot_owner_id: str | None = field(default_factory=lambda: _env("HUBSPOT_MEETING_OWNER_ID"))
+    # who gets the "support follow-up" task when a call logs a problem (default: the meeting owner)
+    hubspot_support_owner_id: str | None = field(default_factory=lambda: _env("HUBSPOT_SUPPORT_OWNER_ID"))
 
     # dialer policy
     business_hours: list[tuple[time, time]] = field(

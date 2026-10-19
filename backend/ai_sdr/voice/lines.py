@@ -1,8 +1,11 @@
 """Every line the code itself says (never the LLM), per language. Wording is unchanged from the 16 Oct worker,
-except the two recovery lines, which are new: they replace silence when the language model fails."""
+except the two recovery lines, which are new: they replace silence when the language model fails, and the filler
+lines (20 Oct), said while a slow calendar request runs and Giulia would otherwise be silent."""
 from __future__ import annotations
 
 import re
+
+LANGS = ("it", "en")
 
 LINES: dict[str, dict[str, str]] = {
     "dnc": {"en": "Understood, we won't bother you again. Sorry for the inconvenience.",
@@ -21,12 +24,22 @@ LINES: dict[str, dict[str, str]] = {
     # it keeps failing: close politely rather than leave dead air
     "tech_trouble": {"en": "Sorry, I'm having a technical problem on my side. We'll call you back shortly. Bye for now!",
                      "it": "Mi scusi, ho un problema tecnico. La richiamiamo a breve. A presto!"},
+    # a calendar request is still running after FILLER_DELAY_S of silence (RunContext.with_filler)
+    "filler_calendar": {"en": "One moment, I'm just checking the calendar.",
+                        "it": "Un attimo, controllo il calendario."},
+    "filler_update": {"en": "One moment, I'm updating it now.",
+                      "it": "Un attimo, lo aggiorno subito."},
 }
 
 
 def line(name: str, language: str) -> str:
     table = LINES[name]
     return table.get(language, table["it"])
+
+
+def variants(name: str) -> set[str]:
+    """The line in every language: a call can switch language, and an earlier line may be in the other one."""
+    return {line(name, x) for x in LANGS}
 
 
 def check_ins(language: str, n: int) -> list[str]:

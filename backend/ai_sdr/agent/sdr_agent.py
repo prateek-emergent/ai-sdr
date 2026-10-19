@@ -1,20 +1,28 @@
 """Giulia's tools. Names, arguments and descriptions are unchanged from the 16 Oct worker (they are part of the
 "intelligence"); only the plumbing changed in the 17 Oct revamp:
 - a tool that ends the call asks CallController.end() and raises StopResponse (no reply into a closed room);
-- every tool's I/O is time-limited, so a hung calendar or database can't freeze the conversation."""
+- every tool's I/O is time-limited, so a hung calendar or database can't freeze the conversation.
+
+20 Oct: calls are bilingual. switch_language hands the call to a twin agent in the other language (LiveKit's own
+handoff: the history carries over, the twin brings that language's prompt and voice; speech-to-text already hears
+both). New tool log_support_issue. A filler line plays when a slow calendar step keeps her silent, and the
+pronunciation map is applied before the voice."""
 from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterable, Awaitable, Callable
 from datetime import datetime
 from typing import Literal
 from zoneinfo import ZoneInfo
 
-from livekit.agents import Agent, RunContext, function_tool
+from livekit import rtc
+from livekit.agents import Agent, ModelSettings, RunContext, function_tool, tts as lk_tts
 from livekit.agents.llm import StopResponse, ToolError
 
 from ..voice.lifecycle import CallController
 from ..voice.lines import DNC_SAID, GOODBYE_WORDS, line
+from ..voice.pronunciation import Pronunciations
 from .actions import CallActions
 from .prompts import goodbye_line
 
@@ -24,6 +32,17 @@ TOOL_TIMEOUT_S = 15.0   # backstop; the calendar itself gives up after 8 s and a
 
 Disposition = Literal["meeting_booked", "manual_scheduling", "callback", "not_now", "not_interested", "not_a_fit",
                       "wrong_person", "dnc", "other"]
+Language = Literal["it", "en"]
+IssueKind = Literal["bug", "publishing", "billing", "refund", "account", "cancel", "other"]
+
+# what the twin says first after a switch: carry on, in the new language, from where the conversation was
+_AFTER_SWITCH = {
+    "en": "The person prefers English. Carry on in English from where the conversation was, in one short turn. If "
+          "they may not have understood the opener, first say briefly who you are, that you're an AI assistant, and "
+          "why you're calling.",
+    "it": "La persona preferisce l'italiano. Continua in italiano da dove eravate, con un turno breve. Se potrebbe non "
+          "aver capito l'apertura, di' prima in breve chi sei, che sei un'assistente AI e perché chiami.",
+}
 
 
 def _last_agent_text(session) -> str:
@@ -34,11 +53,39 @@ def _last_agent_text(session) -> str:
 
 
 class SDRAgent(Agent):
-    def __init__(self, actions: CallActions, instructions: str, recorder, controller: CallController):
-        super().__init__(instructions=instructions)
+    def __init__(self, actions: CallActions, instructions: str, recorder, controller: CallController, *,
+                 language: str = "it", instructions_for: Callable[[str], str] | None = None,
+                 voices: Callable[[str], lk_tts.TTS] | None = None,
+                 pronunciations: dict[str, dict[str, str]] | None = None, filler_delay: float = 0.8,
+                 handoff: bool = False, chat_ctx=None, tts: lk_tts.TTS | None = None):
+        """instructions_for(language) and voices(language) make the twin for switch_language (without them the
+        call stays in one language). handoff: this agent took over mid-call from its twin."""
+        extra = {}
+        if chat_ctx is not None:
+            extra["chat_ctx"] = chat_ctx
+        if tts is not None:   # NOT None-to-disable: only an override when given; otherwise the session's voice
+            extra["tts"] = tts
+        super().__init__(instructions=instructions, **extra)
         self.actions = actions
         self.recorder = recorder
         self.c = controller
+        self.language = language
+        self._instructions_for = instructions_for
+        self._voices = voices
+        self._pronunciation_tables = pronunciations or {}
+        self._say_as = Pronunciations(self._pronunciation_tables.get(language))
+        self._filler_delay = filler_delay
+        self._handoff = handoff
+
+    async def on_enter(self) -> None:
+        if self._handoff:  # the first agent of a call says nothing here: CallController.greet speaks the opener
+            self.session.generate_reply(instructions=_AFTER_SWITCH[self.language])
+
+    async def tts_node(self, text: AsyncIterable[str], model_settings: ModelSettings) -> AsyncIterable[rtc.AudioFrame]:
+        if self._say_as:  # words the voice says wrong, rewritten just before it (voice/pronunciation.py)
+            text = self._say_as.stream(text)
+        async for frame in Agent.default.tts_node(self, text, model_settings):
+            yield frame
 
     async def _bounded(self, coro):
         try:
@@ -49,6 +96,13 @@ class SDRAgent(Agent):
             raise ToolError("That took too long and didn't go through. Tell them a colleague will follow up by "
                             "email.") from None
 
+    async def _with_filler(self, context: RunContext, filler: str, coro: Awaitable):
+        """A slow calendar step (up to 8 s per request, 2-3 requests per booking): if she has been silent for
+        filler_delay seconds while it runs, say one short line (LiveKit's RunContext.with_filler: it waits for the
+        session to be idle, so it never talks over a "let me check" the model already said)."""
+        async with context.with_filler(line(filler, self.c.language), delay=self._filler_delay):
+            return await self._bounded(coro)
+
     @function_tool()
     async def get_available_slots(self, context: RunContext, day: str | None = None) -> str:
         """Get the free times for a call with the team across the coming week (Monday to Saturday). Call this
@@ -57,7 +111,7 @@ class SDRAgent(Agent):
         Args:
             day: optional; only if the person asked for a particular day ('monday', 'domani', or YYYY-MM-DD).
         """
-        return await self._bounded(self.actions.available_slots(day))
+        return await self._with_filler(context, "filler_calendar", self.actions.available_slots(day))
 
     @function_tool()
     async def book_meeting(self, context: RunContext, day: str, at: str, email: str = "", full_name: str = "") -> str:
@@ -70,7 +124,8 @@ class SDRAgent(Agent):
             email: leave empty; only if they themselves asked for the invite to go to a different email.
             full_name: leave empty.
         """
-        return await self._bounded(self.actions.book_meeting(day, at, email, full_name))
+        return await self._with_filler(context, "filler_calendar",
+                                       self.actions.book_meeting(day, at, email, full_name))
 
     @function_tool()
     async def request_manual_scheduling(self, context: RunContext, preferred_times: str, email: str = "") -> str:
@@ -92,7 +147,7 @@ class SDRAgent(Agent):
         Args:
             reason: their words, briefly.
         """
-        return await self._bounded(self.actions.cancel_meeting(reason))
+        return await self._with_filler(context, "filler_update", self.actions.cancel_meeting(reason))
 
     @function_tool()
     async def reschedule_meeting(self, context: RunContext, day: str, at: str) -> str:
@@ -103,7 +158,7 @@ class SDRAgent(Agent):
             day: the new day as they said it ('monday', 'tomorrow', 'lunedì') or YYYY-MM-DD.
             at: the new time, HH:MM 24-hour.
         """
-        return await self._bounded(self.actions.reschedule_meeting(day, at))
+        return await self._with_filler(context, "filler_update", self.actions.reschedule_meeting(day, at))
 
     @function_tool()
     async def schedule_callback(self, context: RunContext, day: str, at: str) -> str:
@@ -151,10 +206,48 @@ class SDRAgent(Agent):
         return await self._bounded(self.actions.record_qualification(score, reasons))
 
     @function_tool()
+    async def log_support_issue(self, context: RunContext, summary: str, kind: IssueKind = "other") -> str:
+        """The person has a problem you must not troubleshoot or sell around: a bug, can't publish, billing, a
+        refund, getting into their account, or cancelling. Log it for the team, then tell them someone will follow
+        up by email.
+
+        Args:
+            summary: one line, in their words.
+            kind: bug, publishing, billing, refund, account, cancel or other.
+        """
+        return await self._bounded(self.actions.log_support_issue(summary, kind))
+
+    @function_tool()
+    async def switch_language(self, context: RunContext, language: Language):
+        """Carry on the call in the other language: "it" (Italian) or "en" (English). Call it straight away,
+        without saying anything first, when the person answers in the other language, asks for it, or clearly
+        struggles with this one. Not for a single foreign word, a name or a greeting.
+
+        Args:
+            language: "it" or "en".
+        """
+        if language == self.language:
+            return self.actions._say("Stai già parlando italiano: continua.", "You're already speaking English: "
+                                     "carry on.")
+        if self._instructions_for is None or self._voices is None:
+            return self.actions._say("In questa chiamata non puoi cambiare lingua: continua in italiano.",
+                                     "This call can't switch language: carry on in English.")
+        self.c.set_language(language)
+        self.actions.state.language = language
+        await self.actions._event("language_switch", {"to": language})
+        # returning an agent hands the call to it (generation.make_tool_output); a bare agent means the old one says
+        # nothing more and the twin speaks first, in its own language and voice (on_enter)
+        return SDRAgent(self.actions, self._instructions_for(language), self.recorder, self.c, language=language,
+                        instructions_for=self._instructions_for, voices=self._voices,
+                        pronunciations=self._pronunciation_tables, filler_delay=self._filler_delay, handoff=True,
+                        chat_ctx=self.chat_ctx.copy(exclude_instructions=True), tts=self._voices(language))
+
+    @function_tool()
     async def stop_recording(self, context: RunContext) -> str:
         """The person does not want the call recorded. Stop the recording and continue the conversation."""
         await self._bounded(self.recorder.stop())
-        return "Registrazione interrotta. Conferma che non stai più registrando e continua."
+        return self.actions._say("Registrazione interrotta. Conferma che non stai più registrando e continua.",
+                                 "Recording stopped. Confirm you're no longer recording and carry on.")
 
     @function_tool()
     async def detected_answering_machine(self, context: RunContext) -> str:

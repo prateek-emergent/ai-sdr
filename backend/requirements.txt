@@ -50,6 +50,7 @@ livekit-plugins-deepgram==1.8.8
 livekit-plugins-elevenlabs==1.8.8
 livekit-plugins-openai==1.8.8
 livekit-plugins-silero==1.8.8
+livekit-plugins-soniox==1.8.8
 livekit-plugins-turn-detector==1.8.8
 livekit-protocol==1.1.27
 markdown-it-py==4.2.0

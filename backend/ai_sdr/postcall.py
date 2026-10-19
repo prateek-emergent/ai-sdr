@@ -18,7 +18,7 @@ from .agent.prompts import allowed_claims
 from .config import settings
 from .llm import structured
 from .integrations.hubspot import HubSpot, task_due_before_meeting
-from .italian import when_phrase
+from .italian import when_phrase_en
 
 log = logging.getLogger("ai_sdr.postcall")
 
@@ -41,8 +41,20 @@ class CallSummary(BaseModel):
         description="each distinct piece of feedback about the platform (praise or criticism), in English, specific "
                     "enough for the product team, e.g. 'credits run out after a few prompts on a CRUD app'")
     meeting_reason: str = Field(description="what the agreed call with our team is about, in English, or empty")
+    # 20 Oct: what the product team needs before the meeting (brief) and to learn across calls
+    language: Literal["it", "en", "mixed", "other"] = Field(description="the language(s) the call was held in")
+    who_for: Literal["own_business", "clients", "employer", "personal", "unknown"] = Field(
+        description="who the app is for: their own business, their clients (agency/freelance), their employer, "
+                    "or a personal/hobby project")
+    stage: Literal["idea", "building", "live", "live_with_users_or_revenue", "paused", "stopped", "unknown"]
+    blockers: list[str] = Field(description="what is holding the project back, in English, specific")
+    wishes: list[str] = Field(description="what they want to see next from the platform, in English")
+    competitors: list[str] = Field(description="other tools they use or moved to (e.g. Lovable, Claude Code)")
+    support_issues: list[str] = Field(
+        description="problems the team must follow up on (bug, publishing, billing, refund, account access, "
+                    "cancelling), one line each in English; empty if none")
     objections: list[Objection]
-    quotes: list[str] = Field(description="2-3 short verbatim quotes from the prospect, in Italian")
+    quotes: list[str] = Field(description="2-3 short verbatim quotes from the prospect, in the language they spoke")
     asked_not_to_be_called: bool = Field(description="true if the prospect asked in any way not to be called again")
     asked_if_ai: bool
     agent_claimed_human: bool
@@ -52,8 +64,9 @@ class CallSummary(BaseModel):
     agent_turns_too_long: bool = Field(description="true if the agent often spoke more than two sentences in a row")
 
 
-SYSTEM = ("You review transcripts of short Italian sales-development phone calls made by an AI assistant. "
-          "Extract the facts precisely. Do not guess: if something did not happen, say so (empty list / false).\n"
+SYSTEM = ("You review transcripts of short sales-development phone calls, in Italian or English, made by an AI "
+          "assistant to customers of an AI app builder. Extract the facts precisely. Do not guess: if something did "
+          "not happen, say so (empty list / false / unknown).\n"
           "The only claims the agent may make (no numbers of any kind):\n")
 
 
@@ -71,7 +84,8 @@ def transcript_text(transcript: dict | None) -> str:
 
 
 async def summarise(text: str) -> CallSummary:
-    return await structured(SYSTEM + allowed_claims(), f"Transcript:\n\n{text}", CallSummary,
+    # the English claims: same meaning as the Italian ones, and the review itself is in English
+    return await structured(SYSTEM + allowed_claims("en"), f"Transcript:\n\n{text}", CallSummary,
                             model=settings().summary_model, max_tokens=4000)
 
 
@@ -93,14 +107,19 @@ def review_flags(call: dict, s: CallSummary | None) -> list[str]:
 def brief(call: dict, s: CallSummary) -> str:
     who = " ".join(x for x in (call.get("first_name"), call.get("last_name")) if x) or call.get("phone_e164")
     tz = call.get("tz") or "Europe/Rome"
-    when = when_phrase(call["meeting_start"].astimezone(ZoneInfo(tz))) if call.get("meeting_start") else "n/a"
+    when = when_phrase_en(call["meeting_start"].astimezone(ZoneInfo(tz))) if call.get("meeting_start") else "n/a"
     parts = [f"AI SDR call brief: {who}" + (f", {call['company']}" if call.get("company") else ""),
              f"Meeting: {when} ({tz})",
              f"Qualification: {s.qualification}: " + "; ".join(s.qualification_reasons),
              f"What they built: {s.what_they_built or 'n/a'}",
+             f"For: {s.who_for.replace('_', ' ')} · stage: {s.stage.replace('_', ' ')} · call language: {s.language}",
              f"Meeting about: {s.meeting_reason or 'n/a'}",
+             "Blockers: " + ("; ".join(s.blockers) or "n/a"),
+             "Wants next: " + ("; ".join(s.wishes) or "n/a"),
+             "Other tools: " + (", ".join(s.competitors) or "none mentioned"),
              "Pain points: " + ("; ".join(s.pain_points) or "n/a"),
              "Product feedback: " + ("; ".join(s.product_feedback) or "n/a"),
+             "Open support issues: " + ("; ".join(s.support_issues) or "none"),
              "Objections: " + ("; ".join(f"{o.objection} -> {o.response}" for o in s.objections) or "none"),
              "Quotes: " + (" | ".join(f'"{q}"' for q in s.quotes) or "n/a"),
              f"Summary: {s.summary_en}"]
@@ -126,6 +145,14 @@ def manual_scheduling_brief(call: dict, s: CallSummary | None) -> str:
 def manual_task_due(now: datetime) -> datetime:
     """Same day, so the person hears back while the call is fresh."""
     return now + timedelta(hours=2)
+
+
+def support_brief(call: dict, s: CallSummary) -> str:
+    """The problems the agent logged (log_support_issue) or the review found, for whoever handles support."""
+    who = " ".join(x for x in (call.get("first_name"), call.get("last_name")) if x) or call.get("phone_e164")
+    return "\n".join([f"AI SDR: support follow-up promised on the call (by email). Who: {who}",
+                      *(f"- {issue}" for issue in s.support_issues),
+                      f"What they built: {s.what_they_built or 'n/a'}", f"Summary: {s.summary_en}"])
 
 
 async def process(conn, call: dict, hubspot: HubSpot) -> None:
@@ -179,7 +206,17 @@ async def process(conn, call: dict, hubspot: HubSpot) -> None:
                 "ai_qual_reason": "; ".join(summary.qualification_reasons)[:500] if summary else None,
                 "ai_persona_variant": call.get("persona_variant"),
                 "ai_meeting_booked_at": call["meeting_start"].date().isoformat() if call.get("meeting_start") else None,
-                "ai_preferred_times": (call.get("manual_schedule") or {}).get("preferred")})
+                "ai_preferred_times": (call.get("manual_schedule") or {}).get("preferred"),
+                # written only once these fields exist in HubSpot (update_contact skips unknown ones)
+                "ai_language": summary.language if summary else None,
+                "ai_stage": summary.stage if summary else None,
+                "ai_competitors": ", ".join(summary.competitors)[:250] if summary and summary.competitors else None})
+            if summary and summary.support_issues:
+                # the agent told them someone would follow up by email: a same-day task, never lost in a note
+                text = support_brief(call, summary)
+                await hubspot.add_note(contact_id, text)
+                await hubspot.add_task(contact_id, "Support follow-up: AI SDR call", text, manual_task_due(now),
+                                       settings().hubspot_support_owner_id or settings().hubspot_owner_id)
             if call.get("disposition") == "meeting_booked" and call.get("meeting_start") and summary:
                 text = brief(call, summary)
                 await hubspot.add_note(contact_id, text)

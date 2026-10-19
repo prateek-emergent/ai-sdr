@@ -18,7 +18,7 @@ import logging
 
 from livekit.agents import AgentSession
 
-from .lines import line
+from .lines import line, variants
 from .scope import CallScope
 from .telemetry import CallTelemetry
 
@@ -66,6 +66,12 @@ class CallController:
             self.telemetry.event("call_state", state=state.value)
             self.state = state
 
+    def set_language(self, language: str) -> None:
+        """The call switched language (switch_language tool): every line the code says from now on follows it."""
+        if language != self.language:
+            self.telemetry.event("language_switch", frm=self.language, to=language)
+            self.language = language
+
     def greet(self, text: str) -> None:
         """Speak first. Agent audio already waits for the person to be subscribed, so no fixed delay is needed."""
         if self.closing:
@@ -106,7 +112,7 @@ class CallController:
 
     def _on_item(self, ev) -> None:
         item = ev.item
-        if getattr(item, "role", None) == "assistant" and (item.text_content or "") != line("recover", self.language):
+        if getattr(item, "role", None) == "assistant" and (item.text_content or "") not in variants("recover"):
             self._llm_failures = 0  # the model answered: the failure streak is over
 
     def _on_error(self, ev) -> None:

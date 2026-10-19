@@ -72,6 +72,26 @@ class HubSpot:
                 return hits[0]["id"]
         return None
 
+    async def get_contact(self, contact_id: str, props: list[str]) -> dict:
+        """A contact's properties plus the ids of its calls and tickets, in one read (customer card, dial time)."""
+        if not self.enabled:
+            return {}
+        res = await self._req(
+            "GET", f"/crm/v3/objects/contacts/{contact_id}?properties={','.join(props)}&associations=calls,tickets",
+            is_write=False)
+        assoc = res.get("associations") or {}
+        return {"properties": res.get("properties") or {},
+                "calls": [a["id"] for a in (assoc.get("calls") or {}).get("results", [])],
+                "tickets": [a["id"] for a in (assoc.get("tickets") or {}).get("results", [])]}
+
+    async def read_objects(self, kind: str, ids: list[str], props: list[str]) -> list[dict]:
+        """Batch read of up to 100 objects of one kind (calls, tickets...): their properties only."""
+        if not ids or not self.enabled:
+            return []
+        res = await self._req("POST", f"/crm/v3/objects/{kind}/batch/read",
+                              {"properties": props, "inputs": [{"id": i} for i in ids[:100]]}, is_write=False)
+        return [r.get("properties") or {} for r in res.get("results", [])]
+
     async def update_contact(self, contact_id: str, props: dict) -> None:
         known = await self.known_props()
         props = {k: v for k, v in props.items() if v is not None and (k in known or not self.enabled)}

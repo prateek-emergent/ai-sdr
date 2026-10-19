@@ -60,11 +60,13 @@ export default function App() {
 
 function TalkPage() {
   const nameRef = useRef("");
+  const langRef = useRef("it"); // Italian for customers; English for the team's tests (she can switch mid-call)
+  const appRef = useRef(""); // optional: an app for Giulia to talk about, as on a real call
   const report = useClientEvents();
   const tokenSource = useMemo(() => TokenSource.literal(async () => {
     // a fresh room every time: an agent never rejoins a room that existed before
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const r = await fetch(`${API}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nameRef.current, tz }) });
+    const r = await fetch(`${API}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nameRef.current, tz, language: langRef.current, app: appRef.current }) });
     if (!r.ok) throw new Error(`the server answered ${r.status}`);
     const j = await r.json();
     report.setRoom(j.room);
@@ -74,15 +76,17 @@ function TalkPage() {
   const session = useSession(tokenSource, { agentConnectTimeoutMilliseconds: JOIN_TIMEOUT_MS });
   return (
     <SessionProvider session={session}>
-      <Call session={session} nameRef={nameRef} report={report} />
+      <Call session={session} nameRef={nameRef} langRef={langRef} appRef={appRef} report={report} />
     </SessionProvider>
   );
 }
 
-function Call({ session, nameRef, report }) {
+function Call({ session, nameRef, langRef, appRef, report }) {
   const agent = useAgent(session);
   const { messages } = useSessionMessages(session);
   const [name, setName] = useState("");
+  const [lang, setLang] = useState("it");
+  const [app, setApp] = useState("");
   const [phase, setPhase] = useState("idle"); // idle | starting | live | ended
   const [error, setError] = useState(null);
   const [actions, setActions] = useState([]);
@@ -141,6 +145,8 @@ function Call({ session, nameRef, report }) {
   async function start() {
     setError(null); setActions([]); seenStates.current = new Set();
     nameRef.current = name.trim();
+    langRef.current = lang;
+    appRef.current = app.trim();
     report.begin();
     report.add("start_clicked", { ua: navigator.userAgent.slice(0, 120) });
     setPhase("starting");
@@ -199,10 +205,19 @@ function Call({ session, nameRef, report }) {
 
         {error && <div style={S.error}>{error}</div>}
         {!live && (
-          <div style={S.row}>
-            <input style={S.input} placeholder="Your first name (optional)" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
-            <button style={S.start} onClick={start}>▶ Start talking</button>
-          </div>
+          <>
+            <div style={S.row}>
+              <input style={S.input} placeholder="Your first name (optional)" value={name} maxLength={60} onChange={(e) => setName(e.target.value)} />
+              <select style={S.select} value={lang} onChange={(e) => setLang(e.target.value)} aria-label="Call language">
+                <option value="it">Italiano</option>
+                <option value="en">English</option>
+              </select>
+            </div>
+            <div style={S.row}>
+              <input style={S.input} placeholder="An app you built, for Giulia to ask about (optional)" value={app} maxLength={60} onChange={(e) => setApp(e.target.value)} />
+              <button style={S.start} onClick={start}>▶ Start talking</button>
+            </div>
+          </>
         )}
         {live && <div style={S.row}>
           <StartAudio room={room} label="🔊 Tap to hear Giulia" style={S.start} />
@@ -245,6 +260,7 @@ const S = {
   error: { background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", borderRadius: 10, padding: "10px 12px", marginBottom: 12, fontSize: 14 },
   row: { display: "flex", gap: 10, marginBottom: 16 },
   input: { flex: 1, padding: "12px 14px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 15 },
+  select: { padding: "12px 14px", borderRadius: 10, border: "1px solid #cbd5e1", fontSize: 15, background: "#fff" },
   start: { padding: "12px 20px", borderRadius: 10, border: 0, background: "#16a34a", color: "#fff", fontWeight: 600, fontSize: 15, cursor: "pointer" },
   stop: { padding: "12px 20px", borderRadius: 10, border: 0, background: "#dc2626", color: "#fff", fontWeight: 600, fontSize: 15, cursor: "pointer" },
   cols: { display: "grid", gridTemplateColumns: "2fr 1fr", gap: 16 },

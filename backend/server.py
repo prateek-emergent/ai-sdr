@@ -140,13 +140,18 @@ def _voice_status() -> dict:
 @app.get("/api/health")
 def health() -> dict:
     return {"ok": True, "service": "ai-sdr", "agent": AGENT, "version": VERSION,
-            "language": os.environ.get("AGENT_LANGUAGE", "it"), "missing_settings": MISSING,
+            "language": os.environ.get("AGENT_LANGUAGE", "it"),
+            "languages": os.environ.get("AGENT_LANGUAGES", "it,en"), "missing_settings": MISSING,
             "voice": _voice_status()}
 
 
 class SessionStart(BaseModel):
     name: str = Field("", max_length=60)
     tz: str | None = Field(None, max_length=60)
+    # the call's language (customers get Italian; the team also tests in English) and, optionally, an app for
+    # Giulia to talk about, as on a real call where the customer card names what they built
+    language: str | None = Field(None, max_length=5)
+    app: str | None = Field(None, max_length=60)
     # test calls only (the probe): pick the voice chain, e.g. ["deepgram"] so automated runs don't spend
     # ElevenLabs credits. Ignored without the debug token.
     tts_chain: list[str] | None = Field(None, max_length=3)
@@ -161,6 +166,10 @@ def session_start(body: SessionStart, background: BackgroundTasks) -> dict:
     room = f"demo-{secrets.token_hex(4)}"
     meta = {"direction": "web", "first_name": body.name.strip(),
             "tz": body.tz or os.environ.get("DEMO_TZ", "Europe/Rome")}
+    if body.language in ("it", "en"):
+        meta["language"] = body.language
+    if body.app and body.app.strip():
+        meta["app"] = body.app.strip()
     expected = os.environ.get("DEBUG_TOKEN", "")
     if body.tts_chain and expected and secrets.compare_digest(body.test_token or "", expected):
         meta["tts_chain"] = [t for t in body.tts_chain if t in ("deepgram", "elevenlabs", "livekit")]

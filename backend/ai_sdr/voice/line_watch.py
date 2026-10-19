@@ -21,7 +21,7 @@ import logging
 
 from ..config import settings
 from .lifecycle import CallController
-from .lines import TROUBLE_WORDS, check_ins, line
+from .lines import TROUBLE_WORDS, check_ins, line, variants
 
 log = logging.getLogger("ai_sdr.voice")
 
@@ -33,13 +33,18 @@ class LineWatch:
         self.c = controller
         self.session = controller.session
         self.actions = actions
-        self.lang = controller.language
         self.task: asyncio.Task | None = None
         self.answer_timer: asyncio.Task | None = None
         self.retries = 0          # cumulative for the whole call
         self.silence_step = 0     # check-ins in the current silence; reset by real words
         self.asked_time = False   # the one "when should I call you back?" has been asked
-        self._own_lines = {line("recover", self.lang), line("tech_trouble", self.lang)}
+        # in both languages: the call may switch after one of these was said
+        self._own_lines = variants("recover") | variants("tech_trouble")
+
+    @property
+    def lang(self) -> str:
+        """The call's current language (it can switch mid-call)."""
+        return self.c.language
 
     def attach(self) -> None:
         self.session.on("user_state_changed", self._on_user_state)

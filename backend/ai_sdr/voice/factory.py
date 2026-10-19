@@ -3,12 +3,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from livekit.agents import AgentSession, inference, vad as lk_vad
+from livekit.agents import AgentSession, inference, tts as lk_tts, vad as lk_vad
 from livekit.agents.types import APIConnectOptions
 from livekit.agents.voice.agent_session import SessionConnectOptions
 
 from .config import VoiceConfig
-from .providers import build_llm, build_stt, build_tts
+from .providers import build_llm, build_stt
 
 
 @dataclass
@@ -17,15 +17,17 @@ class BuiltSession:
     turn_detector: inference.TurnDetector   # kept to report which model actually ran (it can fall back mid-call)
 
 
-def build_session(cfg: VoiceConfig, vad: lk_vad.VAD, tts_chain: tuple[str, ...] | None = None,
+def build_session(cfg: VoiceConfig, vad: lk_vad.VAD, *, language: str, tts: lk_tts.TTS,
                   channel: str = "web") -> BuiltSession:
+    """language: the one the call starts in. tts: that language's voice (providers.Voices); after a mid-call switch
+    the new agent brings its own voice, while speech-to-text, turn detection and the LLM stay with the session."""
     # A new turn detector for every call: when it falls back to the local model (cloud error, or one prediction
     # slower than 1 s) it changes its own state, and a shared one would carry that into every later call.
     td = inference.TurnDetector(version=cfg.turn_detector_version)
     session = AgentSession(
-        stt=build_stt(cfg),
+        stt=build_stt(cfg, language),
         llm=build_llm(cfg),
-        tts=build_tts(cfg, tts_chain),
+        tts=tts,
         vad=vad,
         turn_handling={
             "turn_detection": td,

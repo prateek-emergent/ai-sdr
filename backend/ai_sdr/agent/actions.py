@@ -20,10 +20,6 @@ from ..timeutil import CallbackError, parse_day, resolve_callback
 log = logging.getLogger("ai_sdr.actions")
 
 
-def _say(it: str, en: str) -> str:
-    """Tool results the agent repeats out loud must be in the call's language (instructions may stay Italian)."""
-    return en if settings().agent_language == "en" else it
-
 DISPOSITIONS = {"meeting_booked", "manual_scheduling", "callback", "not_now", "not_interested", "not_a_fit",
                 "wrong_person", "dnc", "hung_up", "other"}
 
@@ -45,6 +41,8 @@ class CallState:
     qualification: str | None = None
     qual_reasons: list[str] = field(default_factory=list)
     voicemail: bool = False
+    language: str = "it"          # the call's current language (switch_language changes it)
+    support_issues: list[dict] = field(default_factory=list)   # problems to hand to the team (log_support_issue)
 
 
 class CallActions:
@@ -54,6 +52,13 @@ class CallActions:
         self.calendar = calendar
         self.hubspot = hubspot
         self.notify = None  # optional async callback(type, payload): the browser demo shows actions live
+
+    def _say(self, it: str, en: str) -> str:
+        """Tool results the agent repeats out loud must be in the call's current language."""
+        return en if self.state.language == "en" else it
+
+    def _when(self, dt: datetime, now: datetime | None = None) -> str:
+        return when_phrase(dt, now, self.state.language)
 
     def _now(self) -> datetime:
         return datetime.now(timezone.utc)
@@ -91,7 +96,7 @@ class CallActions:
 
     def _week_overview(self, slots: list[datetime]) -> str:
         """'Monday 19 October 09:30-13:00, 14:30-18:00; Tuesday ...' (free ranges per day, local time)."""
-        en = settings().agent_language == "en"
+        en = self.state.language == "en"
         days: dict = {}
         for x in sorted(slots):
             days.setdefault(self._local(x).date(), []).append(self._local(x))
@@ -112,7 +117,7 @@ class CallActions:
     def _alternatives(self, slots: list[datetime], target: datetime, n: int = 3) -> str:
         near = sorted(slots, key=lambda x: abs((x - target).total_seconds()))[:n]
         now_local = self._local(self._now())
-        return "; ".join(when_phrase(self._local(x), now_local) for x in sorted(near))
+        return "; ".join(self._when(self._local(x), now_local) for x in sorted(near))
 
     async def _resolve_slot(self, day: str, at: str) -> tuple[datetime | None, str | None]:
         """The person's chosen day/time -> a free slot (UTC), or (None, message with the nearest free times)."""
@@ -120,20 +125,22 @@ class CallActions:
             d = parse_day(day, self._local(self._now()).date())
             t = time.fromisoformat(at)
         except ValueError:
-            return None, _say("Non ho capito il giorno o l'orario: chiedilo di nuovo.",
-                              "Couldn't read that day or time: ask again.")
+            return None, self._say("Non ho capito il giorno o l'orario: chiedilo di nuovo.",
+                                   "Couldn't read that day or time: ask again.")
         target = datetime.combine(d, t, tzinfo=ZoneInfo(self.state.tz)).astimezone(timezone.utc)
         slots = await self._free_slots()
         if target in slots:
             return target, None
         if not slots:
-            return None, _say("Nessuno slot libero nei prossimi giorni: proponi di far scrivere un collega via email.",
-                              "No free slots in the next few days: offer to have a colleague email them.")
+            return None, self._say("Nessuno slot libero nei prossimi giorni: proponi di far scrivere un collega via "
+                                   "email.",
+                                   "No free slots in the next few days: offer to have a colleague email them.")
         alts = self._alternatives(slots, target)
-        return None, _say(f"Quell'orario non è libero. I più vicini liberi: {alts}. Dillo con naturalezza e chiedi "
-                          "quale preferisce.",
-                          f"That time isn't free. Nearest free times: {alts}. Say so naturally and ask which "
-                          "they'd like.")
+        return None, self._say(f"Quell'orario non è libero. I più vicini liberi: {alts}. Dillo con naturalezza e "
+                               "chiedi "
+                               "quale preferisce.",
+                               f"That time isn't free. Nearest free times: {alts}. Say so naturally and ask which "
+                               "they'd like.")
 
     async def available_slots(self, day: str | None = None) -> str:
         """The open times across the coming week (Mon-Sat), for the agent to summarise; `day` starts from that day."""
@@ -141,20 +148,22 @@ class CallActions:
             slots = await self._free_slots(day)
         except CalendarError as e:
             await self._event("error", {"where": "free_slots", "error": str(e)})
-            return _say("Non riesco a vedere il calendario in questo momento. Proponi di far scrivere un collega "
-                        "via email.", "Can't see the calendar right now. Offer to have a colleague email them.")
+            return self._say("Non riesco a vedere il calendario in questo momento. Proponi di far scrivere un collega "
+                             "via email.", "Can't see the calendar right now. Offer to have a colleague email them.")
         self.state.offered = slots
         await self._event("tool_call", {"tool": "get_available_slots", "day": day, "free": len(slots)})
         if not slots:
-            return _say("Nessuno slot libero nei prossimi giorni. Proponi di far scrivere un collega via email.",
-                        "No free slots in the next few days. Offer to have a colleague email them.")
+            return self._say("Nessuno slot libero nei prossimi giorni. Proponi di far scrivere un collega via email.",
+                             "No free slots in the next few days. Offer to have a colleague email them.")
         overview = self._week_overview(slots)
-        return _say(f"Orari liberi (ora italiana, slot da 30 minuti): {overview}. Riassumi in una o due frasi in "
-                    "modo naturale (per esempio \"da lunedì a sabato, la mattina dalle nove e mezza e il pomeriggio "
-                    "dalle due e mezza\"), senza leggere ogni orario, e chiedi che giorno e che ora le va meglio.",
-                    f"Free times (Italian time, 30-minute slots): {overview}. Summarise in one or two natural "
-                    "sentences (for example \"Monday to Saturday, mornings from half nine and afternoons from half "
-                    "two\"), without reading every time, and ask what day and time suits them.")
+        return self._say(f"Orari liberi (ora italiana, slot da 30 minuti): {overview}. Riassumi in una o due frasi in "
+                         "modo naturale (per esempio \"da lunedì a sabato, la mattina dalle nove e mezza e il "
+                         "pomeriggio "
+                         "dalle due e mezza\"), senza leggere ogni orario, e chiedi che giorno e che ora le va meglio.",
+                         f"Free times (Italian time, 30-minute slots): {overview}. Summarise in one or two natural "
+                         "sentences (for example \"Monday to Saturday, mornings from half nine and afternoons from "
+                         "half "
+                         "two\"), without reading every time, and ask what day and time suits them.")
 
     def _email(self, said: str = "") -> str | None:
         """The email we already have for this person (we never ask on the call), unless they gave another one."""
@@ -169,11 +178,11 @@ class CallActions:
     async def book_meeting(self, day: str, at: str, email: str = "", full_name: str = "") -> str:
         email = self._email(email)
         if email is None:
-            return _say("Non abbiamo un'email per questa persona: solo in questo caso chiedila e ripetila.",
-                        "We have no email for this person: only in this case ask for it and read it back.")
+            return self._say("Non abbiamo un'email per questa persona: solo in questo caso chiedila e ripetila.",
+                             "We have no email for this person: only in this case ask for it and read it back.")
         if self.state.booked_start:
-            return _say("C'è già una call prenotata: se vuole cambiare orario usa reschedule_meeting.",
-                        "A call is already booked: if they want a different time, use reschedule_meeting.")
+            return self._say("C'è già una call prenotata: se vuole cambiare orario usa reschedule_meeting.",
+                             "A call is already booked: if they want a different time, use reschedule_meeting.")
         start, problem = await self._resolve_slot(day, at)
         if start is None:
             return problem
@@ -184,8 +193,8 @@ class CallActions:
                                                call_ref=str(self.state.call_id))
         except CalendarError as e:
             await self._event("error", {"where": "book", "error": str(e)})
-            return _say("La prenotazione non è andata a buon fine: richiama get_available_slots e proponi altri "
-                        "orari.", "The booking failed: call get_available_slots and offer other times.")
+            return self._say("La prenotazione non è andata a buon fine: richiama get_available_slots e proponi altri "
+                             "orari.", "The booking failed: call get_available_slots and offer other times.")
         self.state.booked_start, self.state.booked_ref = booking.start, booking.reference
         self.state.booked_email, self.state.booked_name = email, full_name
         self.state.disposition = "meeting_booked"
@@ -197,10 +206,12 @@ class CallActions:
                                     [email, self.state.prospect["id"]])
         await self._event("tool_call", {"tool": "book_meeting", "start": booking.start.isoformat(),
                                         "ref": booking.reference})
-        phrase = when_phrase(self._local(booking.start), self._local(self._now()))
-        return _say(f"Prenotato. Conferma così: call fissata {phrase}; l'invito arriva all'email del suo account.",
-                    f"Booked. Confirm like this: the call is set for {phrase}; the invite is on its way to the email "
-                    "on your account.")
+        phrase = self._when(self._local(booking.start), self._local(self._now()))
+        return self._say(f"Prenotato. Conferma così: call fissata {phrase}; l'invito arriva all'email del suo "
+                         "account.",
+                         f"Booked. Confirm like this: the call is set for {phrase}; the invite is on its way to the "
+                         "email "
+                         "on your account.")
 
     async def request_manual_scheduling(self, preferred_times: str, email: str = "") -> str:
         """No free time fits: log their preferred times so the team books by hand and emails an invite."""
@@ -216,38 +227,40 @@ class CallActions:
                 await self.conn.execute("UPDATE prospects SET email = COALESCE(email, %s) WHERE id = %s",
                                         [email, self.state.prospect["id"]])
         await self._event("tool_call", {"tool": "request_manual_scheduling", **self.state.manual_schedule})
-        return _say("Registrato per il team. Di' così: \"Perfetto, lo passo al team: controllano il calendario e le "
-                    "mandano un invito via email per uno di quegli orari.\" Non promettere un orario o una data "
-                    "precisa.",
-                    "Logged for the team. Say: \"Great, I'll pass these to the team: they'll check their calendar and "
-                    "email you an invite for one of those times.\" Don't promise a specific time or date.")
+        return self._say("Registrato per il team. Di' così: \"Perfetto, lo passo al team: controllano il calendario e "
+                         "le "
+                         "mandano un invito via email per uno di quegli orari.\" Non promettere un orario o una data "
+                         "precisa.",
+                         "Logged for the team. Say: \"Great, I'll pass these to the team: they'll check their "
+                         "calendar and "
+                         "email you an invite for one of those times.\" Don't promise a specific time or date.")
 
     async def cancel_meeting(self, reason: str = "") -> str:
         """They no longer want the call booked earlier in this conversation (after the one question and one nudge)."""
         if not self.state.booked_start:
-            return _say("Non c'è nessuna call prenotata da annullare.", "There's no booked call to cancel.")
+            return self._say("Non c'è nessuna call prenotata da annullare.", "There's no booked call to cancel.")
         ref = self.state.booked_ref
         try:
             if ref:
                 await self.calendar.cancel(ref, reason or "cancelled on the call")
         except CalendarError as e:
             await self._event("error", {"where": "cancel_meeting", "error": str(e)})
-            return _say("L'annullamento non è riuscito: di' che un collega gliela annullerà via email.",
-                        "The cancellation failed: say a colleague will cancel it by email.")
+            return self._say("L'annullamento non è riuscito: di' che un collega gliela annullerà via email.",
+                             "The cancellation failed: say a colleague will cancel it by email.")
         self.state.booked_start = self.state.booked_ref = None
         self.state.disposition = "not_interested"
         if self.conn is not None:
             await db.update_call(self.conn, self.state.call_id, meeting_start=None, meeting_ref=None,
                                  disposition="not_interested")
         await self._event("tool_call", {"tool": "cancel_meeting", "old_ref": ref, "reason": reason})
-        return _say("Annullata. Conferma brevemente che è annullata e che l'invito non vale più, poi chiudi.",
-                    "Cancelled. Briefly confirm it's cancelled and the invite no longer stands, then wrap up.")
+        return self._say("Annullata. Conferma brevemente che è annullata e che l'invito non vale più, poi chiudi.",
+                         "Cancelled. Briefly confirm it's cancelled and the invite no longer stands, then wrap up.")
 
     async def reschedule_meeting(self, day: str, at: str) -> str:
         """The person changed their mind about the time of the call already booked on this call."""
         if not self.state.booked_start:
-            return _say("Non c'è ancora nessuna call prenotata: usa book_meeting.",
-                        "Nothing is booked yet: use book_meeting.")
+            return self._say("Non c'è ancora nessuna call prenotata: usa book_meeting.",
+                             "Nothing is booked yet: use book_meeting.")
         start, problem = await self._resolve_slot(day, at)
         if start is None:
             return problem
@@ -260,20 +273,22 @@ class CallActions:
                 await self.calendar.cancel(old_ref, "rescheduled on the call")
         except CalendarError as e:
             await self._event("error", {"where": "reschedule", "error": str(e)})
-            return _say("Lo spostamento non è riuscito: di' che resta l'orario di prima e che un collega la "
-                        "ricontatta per spostarlo.", "The change failed: say the earlier time still stands and a "
-                        "colleague will be in touch to move it.")
+            return self._say("Lo spostamento non è riuscito: di' che resta l'orario di prima e che un collega la "
+                             "ricontatta per spostarlo.", "The change failed: say the earlier time still stands and a "
+                             "colleague will be in touch to move it.")
         self.state.booked_start, self.state.booked_ref = booking.start, booking.reference
         if self.conn is not None:
             await db.update_call(self.conn, self.state.call_id, meeting_start=booking.start,
                                  meeting_ref=booking.reference)
         await self._event("tool_call", {"tool": "reschedule_meeting", "start": booking.start.isoformat(),
                                         "old_ref": old_ref, "ref": booking.reference})
-        phrase = when_phrase(self._local(booking.start), self._local(self._now()))
-        return _say(f"Spostata. Conferma così: fatto, la call ora è {phrase}; le arriva il nuovo invito via email, "
-                    "quello vecchio è annullato.",
-                    f"Moved. Confirm like this: done, the call is now {phrase}; a new invite is on its way by email "
-                    "and the old one is cancelled.")
+        phrase = self._when(self._local(booking.start), self._local(self._now()))
+        return self._say(f"Spostata. Conferma così: fatto, la call ora è {phrase}; le arriva il nuovo invito via "
+                         "email, "
+                         "quello vecchio è annullato.",
+                         f"Moved. Confirm like this: done, the call is now {phrase}; a new invite is on its way by "
+                         "email "
+                         "and the old one is cancelled.")
 
     async def schedule_callback(self, day: str, at: str) -> str:
         s = settings()
@@ -287,9 +302,11 @@ class CallActions:
             self.state.callback_at = when
             self.state.disposition = self.state.disposition or "callback"
             await self._event("tool_call", {"tool": "schedule_callback", "day": day, "at": at, "utc": when.isoformat()})
-            phrase = when_phrase(self._local(when), self._local(self._now()))
-            return _say(f"Fissato e registrato. Conferma esattamente così: \"Perfetto, allora la richiamo io {phrase}.\"",
-                        f"Scheduled and logged. Confirm exactly like this: \"Perfect, I'll call you back {phrase}.\"")
+            phrase = self._when(self._local(when), self._local(self._now()))
+            return self._say("Fissato e registrato. Conferma esattamente così: \"Perfetto, allora la richiamo io "
+                             f"{phrase}.\"",
+                             "Scheduled and logged. Confirm exactly like this: \"Perfect, I'll call you back "
+                             f"{phrase}.\"")
         if pid is None:
             return "Non ho i dati di questa persona: chiedi di scriverci, non posso fissare la richiamata."
         job_id = await db.enqueue_job(self.conn, pid, "callback", when, reason="requested on call", created_by="agent")
@@ -299,15 +316,16 @@ class CallActions:
         self.state.disposition = self.state.disposition or "callback"
         await db.update_call(self.conn, self.state.call_id, callback_at=when)
         await self._event("tool_call", {"tool": "schedule_callback", "day": day, "at": at, "utc": when.isoformat()})
-        phrase = when_phrase(self._local(when), self._local(self._now()))
-        return _say(f"Fissato e registrato. Conferma esattamente così: \"Perfetto, allora la richiamo io {phrase}.\"",
-                    f"Scheduled and logged. Confirm exactly like this: \"Perfect, I'll call you back {phrase}.\"")
+        phrase = self._when(self._local(when), self._local(self._now()))
+        return self._say("Fissato e registrato. Conferma esattamente così: \"Perfetto, allora la richiamo io "
+                         f"{phrase}.\"",
+                         f"Scheduled and logged. Confirm exactly like this: \"Perfect, I'll call you back {phrase}.\"")
 
     async def cancel_callback(self) -> str:
         """The person first asked for a callback, then changed their mind and wants to talk now."""
         if self.state.callback_at is None:
-            return _say("Non c'è nessuna richiamata da annullare: continua la conversazione.",
-                        "There is no callback to cancel: carry on the conversation.")
+            return self._say("Non c'è nessuna richiamata da annullare: continua la conversazione.",
+                             "There is no callback to cancel: carry on the conversation.")
         pid = self.state.prospect.get("id") if self.state.prospect else None
         if self.conn is not None and pid is not None:
             await self.conn.execute(
@@ -318,8 +336,8 @@ class CallActions:
         if self.state.disposition == "callback":
             self.state.disposition = None
         await self._event("tool_call", {"tool": "cancel_callback"})
-        return _say("Richiamata annullata: continua la conversazione adesso, senza tornarci sopra.",
-                    "Callback cancelled: carry on the conversation now, without dwelling on it.")
+        return self._say("Richiamata annullata: continua la conversazione adesso, senza tornarci sopra.",
+                         "Callback cancelled: carry on the conversation now, without dwelling on it.")
 
     async def mark_do_not_call(self, reason: str) -> str:
         self.state.disposition = "dnc"
@@ -335,10 +353,25 @@ class CallActions:
         await self._event("tool_call", {"tool": "mark_do_not_call", "reason": reason})
         # HubSpot is updated by post-call (postcall.py, from prospects.dnc), never here: a slow CRM call mid-call
         # held the closing line for up to ~45 s (17 Oct revamp). The DNC flag above is already in our DB.
-        return _say("Fatto: non verrà più chiamato. Se ti sei già scusata e hai già salutato, non ripeterlo: chiama "
-                    "subito end_call. Altrimenti una sola frase breve di scuse e saluto, poi end_call.",
-                    "Done: they will never be called again. If you've already apologised and said goodbye, don't say "
-                    "it again: call end_call now. Otherwise one short line of apology and goodbye, then end_call.")
+        return self._say("Fatto: non verrà più chiamato. Se ti sei già scusata e hai già salutato, non ripeterlo: "
+                         "chiama "
+                         "subito end_call. Altrimenti una sola frase breve di scuse e saluto, poi end_call.",
+                         "Done: they will never be called again. If you've already apologised and said goodbye, don't "
+                         "say "
+                         "it again: call end_call now. Otherwise one short line of apology and goodbye, then end_call.")
+
+    async def log_support_issue(self, summary: str, kind: str = "other") -> str:
+        """A problem the agent must not troubleshoot or sell around (bug, publishing, billing, refund, access,
+        cancelling): logged for the team; post-call turns it into a HubSpot task for support (20 Oct: such problems
+        came up in 1 Nooks follow-up call in 5, and upselling while they were open backfired)."""
+        issue = {"summary": (summary or "").strip()[:300], "kind": kind, "logged_at": self._now().isoformat()}
+        self.state.support_issues.append(issue)
+        await self._event("support_issue", issue)
+        return self._say("Registrato per il team. Di' che qualcuno la ricontatterà via email; niente soluzioni "
+                         "tecniche "
+                         "e nessuna proposta finché non è risolto. Poi chiedi se le va di continuare.",
+                         "Logged for the team. Say someone will follow up by email; no technical fixes and no offers "
+                         "while it's unresolved. Then ask if they're happy to carry on.")
 
     async def record_qualification(self, score: str, reasons: list[str]) -> str:
         if score not in ("qualified", "maybe", "not_qualified"):

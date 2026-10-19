@@ -61,8 +61,9 @@ async def dial_job(conn, job: dict, *, ignore_hours: bool = False) -> str:
     call_id = await db.create_call(conn, job_id=job["id"], prospect_id=job["prospect_id"], direction="outbound",
                                    room_name=room, phone=job["phone_e164"])
     try:
+        # kind: a callback the person asked for opens as one ("calling you back as agreed"), not as a first call
         await dispatch(room, {"direction": "outbound", "call_id": call_id, "job_id": job["id"],
-                              "prospect_id": job["prospect_id"], "phone": job["phone_e164"]})
+                              "prospect_id": job["prospect_id"], "phone": job["phone_e164"], "kind": job["kind"]})
     except Exception as e:
         log.exception("dispatch failed")
         await db.update_call(conn, call_id, outcome="failed", ended_at=datetime.now(timezone.utc))

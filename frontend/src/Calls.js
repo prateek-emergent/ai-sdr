@@ -170,7 +170,7 @@ function Detail({ room, token }) {
     <>
       <a href="/calls#" style={S.link}>← all calls</a>
       <div style={S.h2}>{r.channel === "phone" ? "📞" : "🌐"} {when(r.started_at)} · {Math.round(r.duration_s || 0)}s · {closeLabel(r.close)}{r.extra?.disposition ? ` · outcome: ${r.extra.disposition}` : ""}</div>
-      <div style={S.muted}>{r.room} · {r.agent_name} · code {r.version} · STT {r.config?.stt} · voice {(r.config?.tts_chain || []).join(" → ")} · LLM {(r.config?.llm_routes || []).join(" → ")} · turn model {r.turn_detector_used}</div>
+      <div style={S.muted}>{r.room} · {r.agent_name} · code {r.version} · language {r.extra?.language || r.config?.language} · STT {r.config?.stt} · voice {(r.config?.tts_chain || []).join(" → ")} · LLM {(r.config?.llm_routes || []).join(" → ")} · turn model {r.turn_detector_used}</div>
 
       <div style={S.tiles}>
         <Tile label="opener audio" value={s(m.opener_audio_s)} color={tone(m.opener_audio_s, TARGET.opener)} />

@@ -69,7 +69,19 @@ def today_line_en(now: datetime) -> str:
             f"({now:%Y-%m-%d}), {now:%H:%M} (time zone {now.tzinfo}). Next days: {days}.")
 
 
-def when(dt: datetime, now: datetime | None = None) -> str:
-    """Read-back wording in the agent's language."""
-    from .config import settings
-    return when_phrase_en(dt, now) if settings().agent_language == "en" else when_phrase(dt, now)
+def when(dt: datetime, now: datetime | None = None, language: str | None = None) -> str:
+    """Read-back wording in the call's language (default: the agent's default language)."""
+    if language is None:
+        from .config import settings
+        language = settings().agent_language
+    return when_phrase_en(dt, now) if language == "en" else when_phrase(dt, now)
+
+
+def month_year(dt, language: str) -> str:
+    """'marzo 2026' / 'March 2026' (for "customer since ...")."""
+    return f"{(MONTHS_EN if language == 'en' else MONTHS)[dt.month - 1]} {dt.year}"
+
+
+def day_month(dt, language: str) -> str:
+    """'29 settembre' / '29 September'."""
+    return f"{dt.day} {(MONTHS_EN if language == 'en' else MONTHS)[dt.month - 1]}"
