@@ -38,3 +38,30 @@ Decisions and their reasons: `decisions.md`. In `backend/.env` (never committed)
 | `LLM_WARM_ON_SPEECH` | `0` | Reopen the LLM connection after each of her lines. No gain measured from the laptop. |
 
 Before every push, from `backend/`: `python -m pytest` and `python -m ai_sdr.agent.prompt_check` (the Italian and English prompts must stay in step).
+
+## Tracing and the improvement loop (20 Oct)
+
+- **Traces (Langfuse).** Every call is a Langfuse session named after its room: each turn, the LLM request (prompt, reply, tokens, time to first token), the voice and the tools, from LiveKit's own OpenTelemetry spans (`ai_sdr/voice/tracing.py`). Off until the keys are set.
+- **Grades.** The web backend starts `ai_sdr.evals.watch` next to the voice supervisor. It grades every finished call (a judge model on 15 checks from the prompt and the Nooks calls, plus counted checks), writes the grade into the call report (`eval`), and puts the score, outcome, timings and failed checks on the call's Langfuse trace. Log: `/tmp/ai_sdr_evals.log`.
+- **Simulated customers.** 14 scenarios (`ai_sdr/evals/scenarios.py`) played by a model against the real prompt and tools, in text, each call graded plus "did it end where it should".
+- **Improve.** Reads the failures, proposes one change to both prompts, runs the scenarios on the old and new prompt, writes a report. A person decides; `--apply` copies it into the repo.
+
+From `backend/`, with its venv's python (`/root/.venv/bin/python` on the pod):
+
+```
+python -m ai_sdr.cli evals simulate [--scenario it_dnc,it_busy_callback] [--repeat 3] [--trace]
+python -m ai_sdr.cli evals improve [--repeat 2]        # report: ~/.ai-sdr/evals/improve/<id>/report.md
+python -m ai_sdr.cli evals improve --apply <candidate dir>
+python -m ai_sdr.cli evals grade [--room demo-31e3d4b4]
+python -m ai_sdr.cli evals scenarios
+```
+
+| Setting | Default | What it does |
+|---|---|---|
+| `LANGFUSE_PUBLIC_KEY` / `LANGFUSE_SECRET_KEY` | — | Turn tracing and Langfuse scores on (project keys from cloud.langfuse.com). |
+| `LANGFUSE_BASE_URL` (or `LANGFUSE_HOST`) | `https://cloud.langfuse.com` | EU region; `https://us.cloud.langfuse.com` for US. |
+| `TRACE_CONTENT` | `masked` | `masked`: the conversation with emails and phone numbers replaced · `full` · `off`: timings, models and tokens only. |
+| `TRACE_SPANS` | `turns` | `turns`: the call, turns, LLM requests, voice and tools, about 6 spans per turn (the free plan counts spans and scores: 50k units a month) · `all`: every span LiveKit emits. |
+| `EVALS_AUTO` | `1` | `0`: don't grade finished calls. |
+| `EVAL_JUDGE_MODEL` / `EVAL_CUSTOMER_MODEL` / `EVAL_IMPROVE_MODEL` | `claude-sonnet-5-5` / `claude-haiku-4-5` / `claude-opus-5-5` | Models on the same gateway as the calls (LiteLLM names). |
+| `EVAL_DIR` | `~/.ai-sdr/evals` | Where simulation runs and improvement reports go. |
