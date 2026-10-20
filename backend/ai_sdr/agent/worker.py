@@ -33,7 +33,7 @@ from ..integrations.hubspot import HubSpot
 from ..voice import config as voice_config
 from ..voice.factory import build_session
 from ..voice.providers import Voices, build_stt, elevenlabs_credits_left
-from ..voice import texture
+from ..voice import texture, tracing
 from ..voice.catalog import BY_ID as VOICE_CATALOG, CatalogVoice
 from ..voice.lifecycle import CallController
 from ..voice.line_watch import LineWatch
@@ -107,6 +107,10 @@ def prewarm(proc: JobProcess) -> None:
     import openai.pagination  # noqa: F401  (preview, 17 Oct: imported on the first reply, blocked the loop 121 ms)
     for tz in ("Europe/Rome", "Asia/Kolkata", "UTC"):
         ZoneInfo(tz)
+    try:   # Langfuse, when its keys are set (voice/tracing.py); a tracing problem never stops the worker
+        tracing.setup(service="ai-sdr-agent", version=CFG.version)
+    except Exception:
+        log.exception("tracing not started")
 
 
 def _load(server: AgentServer) -> float:
@@ -160,6 +164,9 @@ def _start_call(ctx: JobContext, channel: str, call_id: Any = None, tts_request:
     ctx.log_context_fields = {"room": room, "job_id": ctx.job.id, "channel": channel, "language": language,
                               "agent_name": CFG.agent_name, "version": CFG.version}
     telemetry = CallTelemetry(CFG, room=room, job_id=ctx.job.id, channel=channel, call_id=call_id)
+    tracing.call_started(room, channel=channel, language=language, version=CFG.version, environment=CFG.agent_name,
+                         user=f"call-{call_id}" if call_id else None,
+                         tags=[f"voice:{voice_choice.id}"] if voice_choice else None)
     el_left = ctx.proc.userdata.get("elevenlabs_left")
 
     def on_voice(lang: str, chain: tuple[str, ...], voice) -> None:
@@ -222,12 +229,14 @@ async def on_session_end(ctx: JobContext) -> None:
         return
     try:
         report = call.build(ctx, _CALL["session"], _CALL["extra"]())
+        report["trace_id"] = tracing.trace_id(call.room)   # the grader puts the call's scores on this trace
         call.detach_logs()
         call.log_summary(report)
         where = await save_report(CFG, report)
         log.info("call report saved: %s", where)
     except Exception:
         log.exception("could not save the call report")
+    await asyncio.to_thread(tracing.flush)   # the job process may be reused or stopped next: send what's queued
 
 
 @server.rtc_session(agent_name=CFG.agent_name, on_session_end=on_session_end)

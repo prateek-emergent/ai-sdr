@@ -5,6 +5,7 @@ import os
 from dataclasses import dataclass, field
 from datetime import time
 from functools import lru_cache
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -50,6 +51,15 @@ def _default_model() -> str:
     # model names differ per gateway; none of them serves Haiku 5.5 (checked 2026-10-16)
     return {"emergent": "claude-haiku-4-5-20251001", "litellm": "claude-haiku-4-5"}.get(_provider(),
                                                                                           "claude-haiku-5-5")
+
+
+def _eval_model(role: str) -> str:
+    """judge: grades calls, stronger than the agent so it catches the agent's blind spots; customer: plays the
+    scripted customer, fast; improve: rewrites the prompt. LiteLLM lists these (checked 2026-10-20); the Emergent
+    proxy's list is unknown, so it keeps the default model."""
+    models = {"litellm": {"judge": "claude-sonnet-5-5", "customer": "claude-haiku-4-5", "improve": "claude-opus-5-5"},
+              "anthropic": {"judge": "claude-sonnet-5-5", "customer": "claude-haiku-5-5", "improve": "claude-opus-5-5"}}
+    return models.get(_provider(), {}).get(role) or _default_model()
 
 
 @dataclass(frozen=True)
@@ -147,6 +157,29 @@ class Settings:
     s3_region: str | None = field(default_factory=lambda: _env("RECORDING_S3_REGION", "auto"))
     s3_access_key: str | None = field(default_factory=lambda: _env("RECORDING_S3_ACCESS_KEY"))
     s3_secret: str | None = field(default_factory=lambda: _env("RECORDING_S3_SECRET"))
+
+    # tracing and grading (20 Oct). Traces go to Langfuse (free Hobby plan; EU region by default, the customers are
+    # Italian) and only when both keys are set.
+    langfuse_public_key: str | None = field(default_factory=lambda: _env("LANGFUSE_PUBLIC_KEY"))
+    langfuse_secret_key: str | None = field(default_factory=lambda: _env("LANGFUSE_SECRET_KEY"))
+    # LANGFUSE_BASE_URL is the name Langfuse's own setup page gives it
+    langfuse_host: str = field(default_factory=lambda: (_env("LANGFUSE_HOST") or _env(
+        "LANGFUSE_BASE_URL", "https://cloud.langfuse.com")).rstrip("/"))
+    # what a trace carries: masked (the conversation, with emails and phone numbers replaced) | full | off (timings
+    # and models only)
+    trace_content: str = field(default_factory=lambda: _env("TRACE_CONTENT", "masked"))
+    # turns: only the spans a person reads a call with (Langfuse's free plan counts spans) | all
+    trace_spans: str = field(default_factory=lambda: _env("TRACE_SPANS", "turns"))
+    # grade every finished call (evals/watch.py, started by the web backend)
+    evals_auto: bool = field(default_factory=lambda: _bool("EVALS_AUTO", True))
+    eval_judge_model: str = field(default_factory=lambda: _env("EVAL_JUDGE_MODEL", _eval_model("judge")))
+    eval_customer_model: str = field(default_factory=lambda: _env("EVAL_CUSTOMER_MODEL", _eval_model("customer")))
+    eval_improve_model: str = field(default_factory=lambda: _env("EVAL_IMPROVE_MODEL", _eval_model("improve")))
+    eval_dir: str = field(default_factory=lambda: _env("EVAL_DIR", str(Path.home() / ".ai-sdr" / "evals")))
+
+    @property
+    def langfuse_enabled(self) -> bool:
+        return bool(self.langfuse_public_key and self.langfuse_secret_key)
 
 
 @lru_cache(maxsize=1)
