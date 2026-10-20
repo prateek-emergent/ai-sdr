@@ -1,6 +1,6 @@
 # Giulia handoff
 
-What the voice agent looked like when we started from the preview pod (snapshot `0c20695`, VERSION `b7baff2`), what it is now (`824731c` plus local work), and how the backend changed in between. Diagrams: [before.html](before.html) and [after.html](after.html), made with the diagram-design skill, plus [llm-context.html](llm-context.html): everything Giulia's LLM reads on a turn.
+What the voice agent looked like when we started from the preview pod (snapshot `0c20695`, VERSION `b7baff2`), what it is now (`824731c` plus local work), and how the backend changed in between. Diagrams: [before.html](before.html) and [after.html](after.html), made with the diagram-design skill, plus [llm-context.html](llm-context.html): everything Giulia's LLM reads on a turn. The core voice agent's low-level designs, with the runs behind each change: [core-agent.html](core-agent.html).
 
 ## What changed
 

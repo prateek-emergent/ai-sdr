@@ -1,0 +1,586 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Giulia Core Agent</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: a reading column with wide bands for diagrams and tables; diagrams sit on their own light plate in both themes */
+:root {
+  --paper: #f5f7f6; --card: #ffffff; --ink: #14201b; --muted: #56635d; --rule: #d8dfdb;
+  --accent: #0d6b51; --accent-soft: #e2f1eb; --warn: #8a5300; --warn-soft: #f7ebd6; --no: #8f2f2f; --no-soft: #f6e3e3;
+  --plate: #ffffff; --plate-rule: #d8dfdb;
+  --display: "Archivo", "Helvetica Neue", Arial, sans-serif;
+  --body: "Source Serif 4", Georgia, serif;
+  --mono: "JetBrains Mono", ui-monospace, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1513; --card: #151d1a; --ink: #e6ece9; --muted: #9eaca5; --rule: #27322d;
+    --accent: #4cc39d; --accent-soft: #12342a; --warn: #e3a64c; --warn-soft: #33270f; --no: #e58a8a; --no-soft: #3a1f1f;
+    --plate: #f3f5f4; --plate-rule: #3a4741; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0f1513; --card: #151d1a; --ink: #e6ece9; --muted: #9eaca5; --rule: #27322d;
+  --accent: #4cc39d; --accent-soft: #12342a; --warn: #e3a64c; --warn-soft: #33270f; --no: #e58a8a; --no-soft: #3a1f1f;
+  --plate: #f3f5f4; --plate-rule: #3a4741; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 17px; line-height: 1.6;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 40px 72px;
+}
+.page { max-width: 1060px; margin: 0 auto; display: grid; grid-template-columns: minmax(0, 1fr); gap: 56px; }
+.page > *, section > * { min-width: 0; }
+.col { max-width: 70ch; }
+h1, h2, h3, h4, .eyebrow, nav a, .chip, th, .tag { font-family: var(--display); }
+h1 { font-size: clamp(34px, 5vw, 50px); line-height: 1.05; letter-spacing: -0.02em; font-weight: 800; margin: 6px 0 14px; text-wrap: balance; }
+h2 { font-size: 26px; line-height: 1.2; letter-spacing: -0.01em; font-weight: 700; margin: 0; text-wrap: balance; }
+h3 { font-size: 19px; line-height: 1.3; font-weight: 700; margin: 0; text-wrap: balance; }
+h4 { font-size: 13px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+p { margin: 0 0 12px; }
+a { color: var(--accent); text-underline-offset: 2px; }
+a:focus-visible, summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 2px; }
+code { font-family: var(--mono); font-size: 0.82em; background: var(--accent-soft); color: var(--ink); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.eyebrow { font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+.lead { font-size: 19px; }
+.muted { color: var(--muted); }
+.small { font-size: 14px; }
+section { display: grid; grid-template-columns: minmax(0, 1fr); gap: 18px; }
+section > header { display: grid; gap: 4px; }
+section > header p { color: var(--muted); margin: 0; max-width: 70ch; }
+nav { display: flex; flex-wrap: wrap; gap: 6px 14px; padding-top: 10px; border-top: 1px solid var(--rule); }
+nav a { font-size: 14px; font-weight: 600; color: var(--muted); text-decoration: none; }
+nav a:hover { color: var(--accent); }
+
+.kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+.kpi { background: var(--card); border: 1px solid var(--rule); border-radius: 10px; padding: 14px 16px; display: grid; gap: 2px; align-content: start; }
+.kpi b { font-family: var(--display); font-size: 26px; font-weight: 800; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.kpi span { font-size: 14px; color: var(--muted); }
+.kpi .from { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+.lld { background: var(--card); border: 1px solid var(--rule); border-radius: 12px; padding: 20px 22px; display: grid; gap: 14px; }
+.lld-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 14px; }
+.tag { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); white-space: nowrap; }
+.tag.warn { background: var(--warn-soft); color: var(--warn); }
+.tag.no { background: var(--no-soft); color: var(--no); }
+.tags { display: flex; flex-wrap: wrap; gap: 6px; }
+.files { font-family: var(--mono); font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.diagram { background: var(--plate); border: 1px solid var(--plate-rule); border-radius: 10px; padding: 14px; overflow-x: auto; }
+.diagram pre.mermaid { margin: 0; background: transparent; color: #14201b; font-size: 14px; text-align: center; min-width: 520px; }
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+ul { margin: 0; padding-left: 20px; display: grid; gap: 5px; }
+li { font-size: 16px; }
+li::marker { color: var(--muted); }
+
+.table-wrap { overflow-x: auto; background: var(--card); border: 1px solid var(--rule); border-radius: 10px; }
+.lld .table-wrap { border-radius: 8px; }
+table { width: 100%; border-collapse: collapse; font-size: 15px; min-width: 680px; }
+th { text-align: left; font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); padding: 9px 12px; border-bottom: 1px solid var(--rule); }
+td { padding: 9px 12px; border-bottom: 1px solid var(--rule); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+td.num { font-family: var(--mono); font-size: 13px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+td.k { font-family: var(--mono); font-size: 13px; white-space: nowrap; }
+.better { color: var(--accent); font-weight: 600; }
+.note { font-size: 14px; color: var(--muted); margin: 0; }
+footer { border-top: 1px solid var(--rule); padding-top: 14px; font-size: 13px; color: var(--muted); }
+
+@media (max-width: 860px) { .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); } .two { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { body { font-size: 16px; padding-block: 24px 48px; } .lld { padding: 16px; } .kpi b { font-size: 22px; } }
+</style>
+
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({ startOnLoad: true, theme: 'neutral', securityLevel: 'strict' });</script>
+</head>
+<body>
+<main class="page">
+  <header class="col" style="display:grid;gap:6px">
+    <span class="eyebrow">Core voice agent · from snapshot b7baff2 (20 Oct, 05:18) to c8e9091 (21 Oct, live on the pod)</span>
+    <h1>Giulia Core Agent</h1>
+    <p class="lead">Everything we changed in the voice agent itself since we picked up the preview pod: what each change does, how it is built down to the parameters, and what it measurably improved. The Talk page, the Quality page and the Langfuse views are left out.</p>
+    <nav aria-label="Sections">
+      <a href="#summary">Summary</a><a href="#then-now">Then and now</a><a href="#lld-setup">Call setup</a><a href="#lld-turns">Turn-taking</a><a href="#lld-llm">LLM path</a><a href="#lld-voice">Voice</a><a href="#lld-lang">Bilingual</a><a href="#lld-card">Customer card</a><a href="#lld-tools">Tools and booking</a><a href="#lld-line">Line watch</a><a href="#lld-diag">Diagnostics</a><a href="#lld-ops">Process</a><a href="#runs">Runs</a><a href="#rejected">Rejected</a><a href="#open">Open</a>
+    </nav>
+  </header>
+
+  <section id="summary">
+    <header>
+      <span class="eyebrow">Summary</span>
+      <h2>What the agent gained</h2>
+      <p>34 commits, 2,238 lines added in the core modules (<code>voice/</code>, <code>agent/</code>, prompts, settings), 8 new core modules, tests from 0 to 60.</p>
+    </header>
+    <div class="kpis">
+      <div class="kpi"><b>0.50 s</b><span>LLM first token, median, with the cached prompt</span><span class="from">was 0.58 s (pod A/B)</span></div>
+      <div class="kpi"><b>64%</b><span>simulated calls that keep to the approved claims</span><span class="from">was 46%</span></div>
+      <div class="kpi"><b>92%</b><span>simulated calls where a "yes" gets booked</span><span class="from">was 79%</span></div>
+      <div class="kpi"><b>−31%</b><span>"Perfetto/Benissimo"-type words per call</span><span class="from">1.39 → 0.96</span></div>
+    </div>
+    <div class="two">
+      <div class="lld"><h3>Improved</h3><ul>
+        <li><b>Knows who she is calling:</b> the customer card from HubSpot is read while the phone rings, split into what she may say and what only steers her.</li>
+        <li><b>Speaks the caller's language:</b> Italian or English per call, with a mid-call switch to a twin agent that has its own voice and speech-to-text.</li>
+        <li><b>Sounds more like a person:</b> prompt v4, examples that match the approved claims, no stock enthusiasm words, room tone, typing during lookups, a filler only when a lookup is slow, noise cancellation.</li>
+        <li><b>Answers a little faster:</b> the prompt and tools (10.7k of 11.1k tokens) are read from cache; shorter sentence pieces go to the voice; barge-in stops her sooner; replies are capped at 400 tokens.</li>
+        <li><b>Survives outages:</b> sticky LLM fallback; on 21 Oct the LiteLLM key ran out and the pod kept answering on the Emergent route.</li>
+        <li><b>Measurable:</b> every end-of-turn decision, every model that answered and every turn's timings are in the call report.</li>
+      </ul></div>
+      <div class="lld"><h3>Not improved, and why</h3><ul>
+        <li><b>The caller's median wait stayed about 1.2 s</b> (1.20 s on 20 Oct, 1.23–1.26 s now). It was already near the floor of a cascaded STT → LLM → TTS pipeline: end-of-turn ~0.4–0.6 s, the LLM's first sentence ~0.8 s, first audio ~0.1 s.</li>
+        <li><b>The 1.2 s end-of-turn cap was kept on purpose:</b> on 121 real calls a shorter cap saved 0.02–0.06 s per turn but cut people off in 1–5% of turns.</li>
+        <li><b>One "Perfetto" still slips through</b> now and then; the ban halves the habit, it doesn't remove it.</li>
+      </ul></div>
+    </div>
+  </section>
+
+  <section id="then-now">
+    <header>
+      <span class="eyebrow">High level</span>
+      <h2>Then and now, subsystem by subsystem</h2>
+      <p>The full before/after architecture diagrams are in <code>docs/architecture/before.html</code> and <code>after.html</code>; what the LLM reads is in <code>llm-context.html</code>.</p>
+    </header>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Subsystem</th><th>At pickup (b7baff2)</th><th>Now (c8e9091)</th><th>Commit</th></tr></thead>
+        <tbody>
+          <tr><td>Language</td><td>One per deployment (AGENT_LANGUAGE)</td><td>Per call (page/dialer, prospect, country, +39) and a mid-call switch through a twin agent</td><td class="k">373b35a</td></tr>
+          <tr><td>Customer context</td><td>The prospect row's context (CSV import); no CRM read at dial time</td><td>Customer card: HubSpot at dial time (3 s budget), CSV row or demo form; say-aloud vs background</td><td class="k">373b35a</td></tr>
+          <tr><td>Prompt</td><td>v3</td><td>v4 (listen first, spoken register, natural booking) + examples matching the approved claims + style pack; IT/EN parity check</td><td class="k">164296e · 5df996b</td></tr>
+          <tr><td>Speech-to-text</td><td>Deepgram nova-3 "multi"</td><td>Deepgram nova-3 in the call's language; the twin gets its own stream ("multi" lost the punctuation the turn detector reads)</td><td class="k">7a2475a</td></tr>
+          <tr><td>Turn-taking</td><td>Turn detector v1, VAD silence 0.55 s, interruption after 0.5 s</td><td>Same detector, VAD silence 0.35 s, interruption after 0.3 s, cap kept at 1.2 s (pod), every decision logged</td><td class="k">373b35a · 73d3bd5 · bbb5239</td></tr>
+          <tr><td>LLM</td><td>Haiku 4.5 via LiteLLM → Emergent route, no cap, no cache</td><td>Optional picked model first; Haiku 4.5 with the system prompt cached; 400-token cap; sticky fallback</td><td class="k">73d3bd5 · 04a459d · bbb5239</td></tr>
+          <tr><td>Voice</td><td>ElevenLabs → Deepgram</td><td>Catalog of 10 voices (LiveKit Inference) with Deepgram behind each; ElevenLabs skipped when out of credits; pronunciation map; sentence pieces of 6–8 chars</td><td class="k">7a2475a · 73d3bd5 · 373b35a</td></tr>
+          <tr><td>Audio realism</td><td>None</td><td>Krisp noise cancellation (BVC / BVCTelephony), office room tone, typing during lookups, filler after 0.8 s of silence in a slow tool</td><td class="k">7a2475a · 373b35a</td></tr>
+          <tr><td>Booking</td><td>Ranges of free times to summarise</td><td>Same by default; two concrete spoken slots ready behind SLOT_OFFER=two</td><td class="k">c8e9091</td></tr>
+          <tr><td>Claims</td><td>4 approved lines</td><td>5 (the call is free, signed off)</td><td class="k">a02f038</td></tr>
+          <tr><td>Diagnostics</td><td>Call report with latency percentiles</td><td>+ STT/TTFS/TPS percentiles, models that answered, end-of-turn decisions</td><td class="k">5f7fb01 · bbb5239</td></tr>
+          <tr><td>Tests</td><td>0</td><td>60 + prompt parity check before every push</td><td class="k">all</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="lld-setup">
+    <header><span class="eyebrow">Low-level design 1</span><h2>Call setup: from dial to the opener</h2></header>
+    <div class="lld">
+      <div class="lld-head"><h3>One process per call, everything wired in one place</h3><div class="tags"><span class="tag">new: card, language, voices per language</span></div></div>
+      <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant D as Dialer or Talk page
+  participant LK as LiveKit Cloud
+  participant W as Worker job process
+  participant H as HubSpot
+  participant C as Caller
+  D->>LK: create room, dispatch agent (metadata: language, voice, model, prospect)
+  LK->>W: job request (prewarmed process: Silero VAD loaded, tracing set up)
+  W->>H: read customer card, 3 s budget, while the phone rings
+  H-->>W: card fields (plan, apps, last contact, do_not_touch)
+  W->>W: call_language(): page/dialer choice, prospect language, country, +39
+  W->>W: _start_call(): telemetry, trace labels, voices, session, controller
+  W->>W: line watch, room tone, early-voice warm-up, end-of-turn capture
+  W->>LK: session.start (noise cancellation on the caller's audio)
+  W->>C: opener: name, AI disclosure, their app
+      </pre></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Step</th><th>Detail</th><th>Parameter</th></tr></thead>
+        <tbody>
+          <tr><td>Process</td><td>LiveKit <code>start</code> mode; one prewarmed idle process loads VAD and tracing so a call never waits for them</td><td class="k">AGENT_IDLE_PROCESSES=1, MAX_SESSIONS=3</td></tr>
+          <tr><td>Card</td><td>Read fresh from HubSpot (balances change daily); a do_not_touch contact is never dialled</td><td class="k">CARD_TIMEOUT_S=3</td></tr>
+          <tr><td>Language</td><td>First match wins: explicit choice, prospect's language, country, phone prefix (+39 → it)</td><td class="k">AGENT_LANGUAGES=it,en</td></tr>
+          <tr><td>Web demo</td><td>Session starts before the room connection (name and time zone come with the job), saving 0.5–1.1 s before the opener</td><td class="k">worker.web_demo</td></tr>
+          <tr><td>Call caps</td><td>Optional duration cap; the phone path also caps the SIP call at cap + 60 s</td><td class="k">MAX_CALL_SECONDS, DEMO_MAX_CALL_SECONDS</td></tr>
+        </tbody>
+      </table></div>
+      <p class="files">agent/worker.py (_start_call, web_demo, phone_call, call_language) · agent/card.py · voice/factory.py · voice/telemetry.py</p>
+    </div>
+  </section>
+
+  <section id="lld-turns">
+    <header><span class="eyebrow">Low-level design 2</span><h2>Turn-taking: when she starts and stops talking</h2></header>
+    <div class="lld">
+      <div class="lld-head"><h3>From the caller's last word to Giulia's first sound</h3><div class="tags"><span class="tag">tuned: VAD 0.35 s, barge-in 0.3 s</span><span class="tag warn">kept: 1.2 s cap</span></div></div>
+      <div class="diagram"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> Listening
+  Listening --> CallerSpeaking: VAD hears speech
+  CallerSpeaking --> Pause: 0.35 s of silence
+  Pause --> CallerSpeaking: speaks again before the wait ends
+  Pause --> Judging: turn detector v1 scores the turn
+  Judging --> ShortWait: score at or above threshold
+  Judging --> LongWait: score below threshold
+  ShortWait --> Reply: commit after 0.3 s
+  LongWait --> Reply: commit after 1.2 s
+  Reply --> GiuliaSpeaking: first audio, early draft kept if the transcript held
+  GiuliaSpeaking --> Listening: line ends
+  GiuliaSpeaking --> Overlap: caller talks over her
+  Overlap --> GiuliaSpeaking: backchannel or noise, resumes within 1.0 s
+  Overlap --> Listening: real barge-in, she stops
+      </pre></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Stage</th><th>Component</th><th>Setting now</th><th>Was</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Clean input</td><td>Krisp BVC (web), BVCTelephony (phone)</td><td class="k">NOISE_CANCELLATION=auto</td><td>off</td><td>Background noise mustn't count as the caller talking</td></tr>
+          <tr><td>Silence</td><td>Silero VAD</td><td class="k">VAD_MIN_SILENCE_S=0.35</td><td class="num">0.55</td><td>In 1.8.8 this, not min_delay, sets the end-of-turn floor; LiveKit's minimum is 0.25</td></tr>
+          <tr><td>Words</td><td>Deepgram nova-3, call language</td><td class="k">DEEPGRAM_LANGUAGE=call</td><td>multi</td><td>"multi" dropped punctuation, so turns waited the full cap</td></tr>
+          <tr><td>End of turn</td><td>LiveKit turn detector v1 (cloud; v1-mini if the cloud fails)</td><td class="k">min 0.3 s · max 1.2 s</td><td>same</td><td>Short answers score 0.002–0.37 against 0.405 (it) / 0.386 (en); a shorter cap was rejected on real-call data</td></tr>
+          <tr><td>Early reply</td><td>Preemptive generation + preemptive TTS</td><td class="k">PREEMPTIVE_TTS=1, max speech 60 s (pod)</td><td>same</td><td>First audio ~0.07–0.1 s on the pod; turning it off was a laptop artifact</td></tr>
+          <tr><td>Barge-in</td><td>Adaptive interruption (LiveKit model)</td><td class="k">INTERRUPTION_MIN_S=0.3</td><td class="num">0.5</td><td>She stopped 1.35 s into a barge-in; backchannels (0.3–1.0 s) don't stop her</td></tr>
+          <tr><td>False alarm</td><td>Resume after a false interruption</td><td class="k">FALSE_INTERRUPTION_TIMEOUT_S=1.0</td><td>same</td><td>A cough or "mh" doesn't cost her the line</td></tr>
+          <tr><td>Silence check</td><td>User away</td><td class="k">SILENCE_CHECK_AFTER_S=10</td><td>same</td><td>Feeds the line watch (design 8)</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">Measured on the pod over 7 days: end of turn 0.58 s median, 76% of turns judged over within 0.3–0.6 s, 10% of real human turns at the 1.2 s cap. False interruptions 0.05 per call.</p>
+      <p class="files">voice/factory.py (turn_handling) · voice/config.py · worker.py (prewarm VAD) · voice/providers.py (build_stt)</p>
+    </div>
+  </section>
+
+  <section id="lld-llm">
+    <header><span class="eyebrow">Low-level design 3</span><h2>The LLM path: from the turn to the first word</h2></header>
+    <div class="lld">
+      <div class="lld-head"><h3>One request per reply step, cached, capped and backed up</h3><div class="tags"><span class="tag">new: prompt cache, model pick, sticky fallback, 400-token cap</span></div></div>
+      <div class="diagram"><pre class="mermaid">
+flowchart TB
+  P["system_it / system_en.md"] --> I["build_instructions()"]
+  C["claims_it / claims_en.md, approved lines only"] --> I
+  F["call facts: name, time zone, today + 14 days, goodbye"] --> I
+  K["customer card: say aloud / background"] --> I
+  I --> R["request: system prompt + 14 tools + history, about 11k tokens"]
+  H["history: caller transcripts, her spoken lines, tool results"] --> R
+  R --> FA[["FallbackAdapter: sticky, 4 s per attempt, max 400 tokens out"]]
+  FA -->|"first, if picked"| PK["model picked on the Talk page"]
+  FA -->|"default"| LL["LiteLLM: Claude Haiku 4.5, system prompt cached"]
+  FA -->|"if LiteLLM fails"| EM["Emergent route: Haiku 4.5, pod only"]
+  PK --> ST["streamed tokens"]
+  LL --> ST
+  EM --> ST
+  ST --> SEN["sentence pieces, 6 to 8 chars minimum"]
+  SEN --> TTS["voice (design 4)"]
+      </pre></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Part</th><th>Design</th><th>Effect</th></tr></thead>
+        <tbody>
+          <tr><td>Prompt cache</td><td>Each LiteLLM request for a Claude model carries <code>cache_control_injection_points</code> on the system message, so Anthropic caches tools + system (10,703 of 11,104 tokens). OpenAI models cache by themselves.</td><td class="better">First token 0.58 → 0.50 s median, first sentence p95 0.93 → 0.80 s; cached tokens cost a tenth</td></tr>
+          <tr><td>Output cap</td><td><code>max_completion_tokens=400</code> on every route</td><td>No runaway replies; turns stay at most ~25 words</td></tr>
+          <tr><td>Model pick</td><td><code>voice/llm_catalog.py</code>: 5 LiteLLM + 3 Groq models measured with her real prompt and tools; a pick answers first, the default stays behind it, and the page is told on fallback</td><td>Lets the team compare models on real calls; Haiku 4.5 is still the steadiest (0.63 s / 0.75 s p95)</td></tr>
+          <tr><td>Sticky fallback</td><td>Once a model fails, the call stays on the next one instead of returning to a primary that may fail again</td><td>Avoids repeated 4 s stalls; the 21 Oct LiteLLM outage stayed invisible on the pod</td></tr>
+          <tr><td>Examples fixed</td><td>Prompt examples now use the approved wording ("opzioni di prezzo migliori per i crediti", "di solito questi problemi si possono risolvere")</td><td class="better">Approved-claims check 46% → 64%</td></tr>
+        </tbody>
+      </table></div>
+      <p class="files">voice/providers.py (_one_llm, picked_llm, build_llm, CACHE_SYSTEM_PROMPT) · voice/llm_catalog.py · agent/prompts.py · agent/prompts/*.md · voice/config.py (LLM_PROMPT_CACHE, LLM_ATTEMPT_TIMEOUT_S, LLM_MAX_OUTPUT_TOKENS)</p>
+    </div>
+  </section>
+
+  <section id="lld-voice">
+    <header><span class="eyebrow">Low-level design 4</span><h2>The voice: what the caller hears</h2></header>
+    <div class="lld">
+      <div class="lld-head"><h3>A voice per language, built on first use, always with a backup</h3><div class="tags"><span class="tag">new: catalog, pronunciation, room tone, typing</span></div></div>
+      <div class="diagram"><pre class="mermaid">
+flowchart LR
+  T["sentence pieces from the LLM"] --> PR["pronunciation map, whole words only"]
+  PR --> V{"Voices.get(language)"}
+  V -->|"voice picked for this language"| CI["LiveKit Inference: Cartesia Sonic 3.6 or Inworld TTS-2"]
+  V -->|"configured chain"| EL["ElevenLabs, skipped when nearly out of credits"]
+  CI -.->|"fails or out of credit"| DG["Deepgram Aura-2: Melia it, Athena en"]
+  EL -.->|"fails"| DG
+  V -->|"default today"| DG
+  CI --> MIX["room audio"]
+  DG --> MIX
+  RT["office room tone, 0.8"] --> MIX
+  TY["keyboard typing, 0.5, only during calendar lookups"] --> MIX
+  MIX --> OUT["caller"]
+      </pre></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Part</th><th>Setting</th><th>Why</th></tr></thead>
+        <tbody>
+          <tr><td>Sentence pieces</td><td class="k">TTS_MIN_SENTENCE_LEN=8 (pod .env: 6)</td><td>At 20, short replies waited 0.18–0.65 s for a second sentence</td></tr>
+          <tr><td>Early voice</td><td class="k">PREEMPTIVE_TTS=1</td><td>The voice starts on the draft reply: first audio ~0.1 s on the pod</td></tr>
+          <tr><td>Catalog</td><td class="k">voice/catalog.py: 5 voices per language</td><td>Picked by ear; a LiveKit Inference pick always has Deepgram behind it, and every switch is recorded</td></tr>
+          <tr><td>ElevenLabs guard</td><td class="k">ELEVENLABS_MIN_CREDITS</td><td>A dead first voice cost ~2.4 s of silence before the backup spoke</td></tr>
+          <tr><td>Pronunciation</td><td class="k">TTS_PRONUNCIATIONS_IT / _EN</td><td>Fixes words the voice says wrong, for every voice in the chain; the transcript keeps the written form</td></tr>
+          <tr><td>Room tone, typing</td><td class="k">BACKGROUND_AMBIENCE=office@0.8, TYPING_SOUND=1@0.5</td><td>"Feels like a bot": ~29 dB and ~18 dB under her voice</td></tr>
+        </tbody>
+      </table></div>
+      <p class="files">voice/providers.py (Voices, tts_chain_for, catalog_tts) · voice/catalog.py · voice/pronunciation.py · voice/texture.py · agent/sdr_agent.py (tts_node)</p>
+    </div>
+  </section>
+
+  <section id="lld-lang">
+    <header><span class="eyebrow">Low-level design 5</span><h2>Bilingual calls: switching language mid-call</h2></header>
+    <div class="lld">
+      <div class="lld-head"><h3>A LiveKit handoff to a twin agent</h3><div class="tags"><span class="tag">new</span></div></div>
+      <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  participant C as Caller
+  participant A as Giulia (it)
+  participant K as CallController
+  participant B as Giulia twin (en)
+  C->>A: "Scusi, possiamo parlare in inglese?"
+  A->>A: tool switch_language("en"), says nothing first
+  A->>K: set_language("en"), event language_switch
+  A->>B: return twin: English prompt, English voice, English speech-to-text, history copied
+  B->>C: speaks first, in English, in its own voice
+  Note over B,C: turn detector, LLM and session stay the same
+      </pre></div>
+      <ul>
+        <li>Not for a single foreign word, a name or a greeting; a no-op if she's already in that language.</li>
+        <li>The twin hears in its own language: Deepgram listens in one language at a time.</li>
+        <li><code>agent/prompt_check.py</code> blocks a push when the Italian and English prompts drift apart (sections, tools named).</li>
+      </ul>
+      <p class="files">agent/sdr_agent.py (switch_language) · agent/worker.py (_agent, call_language) · voice/providers.py (Voices per language) · agent/prompt_check.py</p>
+    </div>
+  </section>
+
+  <section id="lld-card">
+    <header><span class="eyebrow">Low-level design 6</span><h2>The customer card: what she knows before "pronto"</h2></header>
+    <div class="lld">
+      <div class="lld-head"><h3>Read at dial time, split by what may be said</h3><div class="tags"><span class="tag">new</span></div></div>
+      <div class="diagram"><pre class="mermaid">
+flowchart LR
+  HS["HubSpot contact, at dial time, 3 s budget"] --> CARD["CustomerCard"]
+  CSV["prospect row (CSV import)"] -.->|"no HubSpot match"| CARD
+  DEMO["web demo form: name, app"] -.->|"browser calls"| CARD
+  CARD --> SAY["say aloud: name, customer since, plan, apps built, last time we spoke"]
+  CARD --> BG["background, never said: active or lapsed, value, credit words, why now, last outcome, booked meeting"]
+  CARD --> DNT{"do_not_touch?"}
+  DNT -->|"yes"| SKIP["never dialled, DNC copied locally"]
+  SAY --> PROMPT["system prompt"]
+  BG --> PROMPT
+      </pre></div>
+      <p>Decided from 1,016 human SDR calls: half the "no"s came at the opener and openers pitched as if to a stranger failed 16 times in 24. Background facts are words, never amounts ("personalisation, not surveillance"). Inbound calls load the card after the greeting and update the instructions of whichever language twin is talking.</p>
+      <p class="files">agent/card.py (CARD_PROPS, CustomerCard.from_demo, fetch_card) · agent/prompts.py · integrations/hubspot.py</p>
+    </div>
+  </section>
+
+  <section id="lld-tools">
+    <header><span class="eyebrow">Low-level design 7</span><h2>Tools and booking</h2></header>
+    <div class="lld">
+      <div class="lld-head"><h3>14 tools, each bounded, slow ones covered</h3><div class="tags"><span class="tag">new: filler, typing, tool timings</span><span class="tag warn">ready, off: two slots</span></div></div>
+      <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  participant C as Caller
+  participant G as Giulia
+  participant T as get_available_slots
+  participant B as book_meeting
+  C->>G: "Sì, una chiamata con un esperto mi andrebbe bene"
+  G->>C: "Guardo un attimo il calendario."
+  G->>T: lookup (typing sound plays)
+  Note over G,T: silent for 0.8 s? one filler line. Backstop 15 s, calendar gives up at 8 s
+  T-->>G: free times as ranges, or two spoken slots with SLOT_OFFER=two
+  G->>C: offers times
+  C->>G: picks one
+  G->>B: book_meeting(day, time)
+  B-->>G: confirmed, or the nearest free times if it was taken
+  G->>C: confirmation, then a pause
+  G->>C: one last feedback question, in its own turn
+  G->>G: record_qualification, then end_call
+      </pre></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td class="k">get_available_slots</td><td>Free times for the coming week (Mon–Sat); with SLOT_OFFER=two, two slots on different days and halves of the day, worded "giovedì alle dieci, oppure venerdì alle tre del pomeriggio?"</td></tr>
+          <tr><td class="k">book_meeting · reschedule_meeting · cancel_meeting</td><td>Book, move, cancel; a taken time returns the nearest free ones; never asks for the email (on file)</td></tr>
+          <tr><td class="k">request_manual_scheduling</td><td>Nothing fits: the team books by hand and emails an invite</td></tr>
+          <tr><td class="k">schedule_callback · cancel_callback</td><td>"Not now": an exact day and time</td></tr>
+          <tr><td class="k">mark_do_not_call</td><td>"Don't call me again": the system says the closing line and hangs up</td></tr>
+          <tr><td class="k">log_support_issue</td><td>Bug, billing, refund, account: logged, never sold around</td></tr>
+          <tr><td class="k">record_qualification · end_call</td><td>Fit score and reasons, then the disposition and hang-up</td></tr>
+          <tr><td class="k">switch_language · stop_recording · detected_answering_machine</td><td>Language twin; recording off on request; voicemail</td></tr>
+        </tbody>
+      </table></div>
+      <p class="files">agent/sdr_agent.py (_bounded TOOL_TIMEOUT_S=15, _with_filler FILLER_DELAY_S=0.8) · agent/actions.py (available_slots, _resolve_slot) · integrations/calendar.py (pick_offer) · italian.py (spoken_slot)</p>
+    </div>
+  </section>
+
+  <section id="lld-line">
+    <header><span class="eyebrow">Low-level design 8</span><h2>Bad lines and silence</h2></header>
+    <div class="lld">
+      <div class="lld-head"><h3>One counter per call, handled in code</h3><div class="tags"><span class="tag">kept from the pickup; now follows the call's language</span></div></div>
+      <div class="diagram"><pre class="mermaid">
+stateDiagram-v2
+  [*] --> Talking
+  Talking --> CheckIn1: 10 s of silence
+  CheckIn1 --> Talking: caller answers
+  CheckIn1 --> CheckIn2: 6 s after her line
+  CheckIn2 --> Talking: caller answers
+  CheckIn2 --> Close: 6 s more, "we'll call back later"
+  Talking --> AskCallback: more than 5 retries (check-ins and "can you repeat?")
+  AskCallback --> Talking: caller gives a time
+  AskCallback --> Close: no answer in 10 s
+  Close --> [*]
+      </pre></div>
+      <p>The "sorry, could you repeat that?" that covers an LLM failure doesn't count as a bad line, giving up never overwrites an outcome already recorded, and every timer belongs to the call's scope, so nothing outlives the call.</p>
+      <p class="files">voice/line_watch.py (MAX_LINE_RETRIES=5, ANSWER_WAIT_S=10) · voice/lifecycle.py (CallController) · voice/scope.py · voice/lines.py</p>
+    </div>
+  </section>
+
+  <section id="lld-diag">
+    <header><span class="eyebrow">Low-level design 9</span><h2>Diagnostics: what every call records</h2></header>
+    <div class="lld">
+      <div class="lld-head"><h3>The call report, now with turn decisions and models</h3><div class="tags"><span class="tag">new: end-of-turn capture, models, more percentiles</span></div></div>
+      <div class="diagram"><pre class="mermaid">
+flowchart LR
+  S["AgentSession events: states, items, errors, tools"] --> TL["CallTelemetry timeline"]
+  EOT["LiveKit end-of-turn logger, wrapped: probability, threshold, wait, language"] --> TL
+  M["per-turn MetricsReport: STT, EOU, TTFT, TTFS, TTFB, TPS, model"] --> SUM["summary"]
+  TL --> SUM
+  SUM --> REP["call report: MongoDB on the pod, files on a laptop"]
+  REP --> GR["grader: 15 checks, 4 must-rules"]
+  REP --> RE["offline replays, e.g. the cap study"]
+      </pre></div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Summary field</th><th>Meaning</th></tr></thead>
+        <tbody>
+          <tr><td class="k">e2e_p50 · e2e_p95</td><td>Caller stops → Giulia audible</td></tr>
+          <tr><td class="k">eot_p50 · stt_p50 · llm_ttft_p50 · llm_ttfs_p50 · tts_ttfb_p50 · llm_tps_p50</td><td>Each stage of the wait</td></tr>
+          <tr><td class="k">llm_model · llm_models · llm_pick · tts_model · stt_model</td><td>Who actually did the work (a pick can fall back mid-call)</td></tr>
+          <tr><td class="k">eot_predictions · eot_unsure · eot_thresholds · eot_languages</td><td>The turn detector's decisions; "unsure" means the turn waited the cap</td></tr>
+        </tbody>
+      </table></div>
+      <p class="note">LiveKit's logger is wrapped, never replaced: a plain logger lacks its <code>trace()</code> method and broke speech-to-text on a test call; a regression test guards it.</p>
+      <p class="files">voice/telemetry.py (EotLogger, capture_eot, summary, _models, _eot) · evals/ (grader, simulations)</p>
+    </div>
+  </section>
+
+  <section id="lld-ops">
+    <header><span class="eyebrow">Low-level design 10</span><h2>Process and deploy safety</h2></header>
+    <div class="lld">
+      <div class="lld-head"><h3>New code without dropping calls</h3><div class="tags"><span class="tag">kept from the pickup, used on every push</span></div></div>
+      <div class="diagram"><pre class="mermaid">
+flowchart LR
+  GIT["git pull on the pod"] --> VER["VERSION file changes"]
+  VER --> SUP["supervisor checks every 15 s"]
+  SUP --> NEW["start a new worker on the new code"]
+  SUP --> OLD["old worker drains: finishes its calls, takes no new ones"]
+  NEW --> HEALTH["/health: version, ready"]
+      </pre></div>
+      <ul>
+        <li>One supervisor per machine (file lock); model files downloaded before the first start; restart with backoff, reset after 600 s of health.</li>
+        <li>A <code>.env</code> change rolls the worker the same way (that is how the Groq key took effect).</li>
+        <li>Before every push: 60 tests, the prompt parity check and a secret scan; VERSION = the last code commit.</li>
+      </ul>
+      <p class="files">voice/run.py · backend/tests/ · agent/prompt_check.py · decisions.md</p>
+    </div>
+  </section>
+
+  <section id="runs">
+    <header>
+      <span class="eyebrow">Evidence</span>
+      <h2>The runs behind each claim</h2>
+      <p>Every number below comes from a run on 20–21 Oct; pod numbers are judged over laptop numbers.</p>
+    </header>
+    <div class="two">
+      <div class="table-wrap"><table style="min-width:420px">
+        <thead><tr><th>Pod, last 7 days</th><th>Value</th></tr></thead>
+        <tbody>
+          <tr><td>Calls / replies / caller turns</td><td class="num">121 / 283 / 320</td></tr>
+          <tr><td>Caller's wait (E2E) p50 · p95</td><td class="num">1.26 s · 2.01 s</td></tr>
+          <tr><td>End of turn p50</td><td class="num">0.58 s</td></tr>
+          <tr><td>LLM first sentence p50</td><td class="num">0.82 s</td></tr>
+          <tr><td>Voice first audio p50</td><td class="num">0.12 s</td></tr>
+          <tr><td>Transcription p50</td><td class="num">0.20 s</td></tr>
+        </tbody>
+      </table></div>
+      <div class="table-wrap"><table style="min-width:420px">
+        <thead><tr><th>Prompt cache A/B, pod, Haiku</th><th>Off</th><th>On</th></tr></thead>
+        <tbody>
+          <tr><td>First token p50 · p95</td><td class="num">0.58 · 0.71 s</td><td class="num better">0.50 · 0.62 s</td></tr>
+          <tr><td>First sentence p50 · p95</td><td class="num">0.74 · 0.93 s</td><td class="num better">0.70 · 0.80 s</td></tr>
+          <tr><td>Prompt tokens from cache</td><td class="num">0 of 11,104</td><td class="num better">10,703</td></tr>
+          <tr><td>Calendar tool still used</td><td class="num">5/5</td><td class="num">5/5</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Prompt A/B, text simulations (28 graded calls each)</th><th>Baseline</th><th>Claims fix</th><th>Claims fix + style pack (live)</th></tr></thead>
+      <tbody>
+        <tr><td>Only approved claims (must-rule)</td><td class="num">46%</td><td class="num better">63%</td><td class="num better">64%</td></tr>
+        <tr><td>Books the yes</td><td class="num">79%</td><td class="num better">92%</td><td class="num better">92%</td></tr>
+        <tr><td>Enthusiasm words per call</td><td class="num">1.39</td><td class="num">1.43</td><td class="num better">0.96</td></tr>
+        <tr><td>Clean close</td><td class="num">32%</td><td class="num">32%</td><td class="num better">38%</td></tr>
+        <tr><td>Sounds like a person / doesn't echo / short turns</td><td class="num">57% / 39% / 46%</td><td class="num">41% / 37% / 48%</td><td class="num">57% / 39% / 50%</td></tr>
+        <tr><td>Expected outcome reached · checks passed</td><td class="num">86% · 70%</td><td class="num">82% · 71%</td><td class="num">82% · 71%</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">One run per version (a repeat to measure noise died on the LiteLLM budget), so differences under ~9 points can be noise; the claims and booking gains have a clear cause.</p>
+    <div class="two">
+      <div class="table-wrap"><table style="min-width:420px">
+        <thead><tr><th>End-of-turn cap, replayed on 192 real turns</th><th>Saves per turn</th><th>Cut-offs</th></tr></thead>
+        <tbody>
+          <tr><td>1.2 s (kept)</td><td class="num">–</td><td class="num">–</td></tr>
+          <tr><td>1.0 s</td><td class="num">0.02 s</td><td class="num">1.0%</td></tr>
+          <tr><td>0.9 s</td><td class="num">0.03 s</td><td class="num">3.1%</td></tr>
+          <tr><td>0.6–0.8 s</td><td class="num">0.04–0.06 s</td><td class="num">5.2%</td></tr>
+        </tbody>
+      </table></div>
+      <div class="table-wrap"><table style="min-width:420px">
+        <thead><tr><th>Models on the pod (real prompt + tools)</th><th>First token p50 · p95</th></tr></thead>
+        <tbody>
+          <tr><td>Claude Haiku 4.5 (default)</td><td class="num">0.63 · 0.75 s</td></tr>
+          <tr><td>GPT-4o</td><td class="num">0.64 · 2.24 s</td></tr>
+          <tr><td>GPT-5.6 Luna · GPT-5.2 · Terra</td><td class="num">0.87 · 0.92 · 0.95 s</td></tr>
+          <tr><td>Claude Sonnet 5.5</td><td class="num">1.18 · 2.32 s</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Earlier measured changes (20 Oct)</th><th>Before</th><th>After</th></tr></thead>
+      <tbody>
+        <tr><td>Sentence pieces to the voice</td><td>20 chars: short replies waited 0.18–0.65 s for a 2nd sentence</td><td>8 (pod 6)</td></tr>
+        <tr><td>Barge-in</td><td>0.5 s; she stopped 1.35 s into an interruption</td><td>0.3 s</td></tr>
+        <tr><td>Deepgram language</td><td>"multi": lost punctuation, turns waited the full cap</td><td>the call's language</td></tr>
+        <tr><td>Early voice (preemptive TTS)</td><td>Off looked better from the laptop (2.61 → 1.79 s), a network artifact</td><td>On: first audio 0.07 s, E2E p50 1.20 s on the pod</td></tr>
+        <tr><td>Pod scripted calls</td><td colspan="2">reply 1.20–1.49 s median per call; first audio 0.10–0.11 s; first token 0.53–0.79 s</td></tr>
+      </tbody>
+    </table></div>
+    <div class="lld">
+      <h3>Pod check after this push (c8e9091, 21 Oct)</h3>
+      <ul>
+        <li>Scripted Italian call: E2E p50 1.23 s, first token p50 0.58 s, first audio 0.12 s, the calendar used.</li>
+        <li>Replies came from the Emergent backup route (the LiteLLM key is over budget): the fallback works.</li>
+        <li>End-of-turn capture live: 4 decisions, 2 unsure, Italian threshold 0.405.</li>
+        <li>New prompt audible in her lines ("Ah, d'accordo. Allora troviamo un orario."); she switched to "tu" when the caller did; one "Perfetto." in 6 lines.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="rejected">
+    <header><span class="eyebrow">Considered</span><h2>Tried and rejected</h2></header>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Idea</th><th>Evidence</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr><td>Shorter end-of-turn cap, or a short cap after closed questions</td><td>Real-call replay: 0.02–0.06 s per turn for 1–5% cut-offs; 8 of 75 answers to closed questions paused mid-way</td><td><span class="tag no">rejected, code removed</span></td></tr>
+        <tr><td>Early voice off (PREEMPTIVE_TTS=0)</td><td>A laptop network artifact; on the pod preemptive TTS gives 0.07 s first audio</td><td><span class="tag no">reverted</span></td></tr>
+        <tr><td>LLM warm-up while the caller speaks</td><td>Slower from the laptop (1.61 vs 1.04 s first token); no gain after she spoke</td><td><span class="tag warn">built, off</span></td></tr>
+        <tr><td>Skip the LLM reply after bookkeeping tools</td><td>Could leave the call open or a line unsaid; the saving isn't heard</td><td><span class="tag no">skipped</span></td></tr>
+        <tr><td>"First sentence of 1–4 words" rule</td><td>Median stayed 5 words</td><td><span class="tag warn">no effect</span></td></tr>
+        <tr><td>Deepgram Flux, Smart Turn and other turn models</td><td>More Italian cut-offs than v1 (Flux 27% vs 17% at 300 ms)</td><td><span class="tag no">rejected</span></td></tr>
+        <tr><td>Groq models</td><td>Free plan: 8K tokens/minute, below one Giulia request (8.7–9.4k)</td><td><span class="tag warn">in the picker, needs a paid plan</span></td></tr>
+        <tr><td>Gemini through the proxy</td><td>Every model fails: the proxy's Vertex credentials ("invalid_grant")</td><td><span class="tag no">not offered</span></td></tr>
+        <tr><td>Speech-to-speech models</td><td>Control, own voice, cost</td><td><span class="tag no">not now</span></td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="open">
+    <header><span class="eyebrow">Next</span><h2>Open items for the core agent</h2></header>
+    <div class="lld"><ul>
+      <li><b>LiteLLM budget:</b> the key is at its $18 cap; the pod runs on the Emergent route (no prompt cache, grader down). About $15 more covers the remaining tests and normal use.</li>
+      <li><b>Two concrete slots:</b> one simulation run on the booking scenarios (~$1), then switch SLOT_OFFER=two on.</li>
+      <li><b>Shorter silence window</b> (VAD 0.35 → 0.25 s): A/B on real pod calls; could save ~0.1 s on most turns.</li>
+      <li><b>A natural outbound opening:</b> LiveKit's built-in answering-machine detection with our own models, the callee speaks first, the opener ready while it rings.</li>
+      <li><b>Shared prompt cache across calls:</b> move per-call text after the static prompt and warm the cache while dialling.</li>
+    </ul></div>
+  </section>
+
+  <footer>Giulia · marketplace-build-30 · core agent report of 21 Oct 2026 · repository github.com/prateek-emergent/ai-sdr, VERSION c8e9091 · sources: git history, decisions.md, call reports, simulation runs</footer>
+</main>
+
+</body>
+</html>
