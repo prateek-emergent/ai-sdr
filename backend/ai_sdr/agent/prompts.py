@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -12,11 +13,14 @@ from ..italian import today_line, today_line_en
 from .card import CustomerCard
 
 DIR = Path(__file__).parent / "prompts"
+# where the prompt files are read from: always DIR on calls; a simulated call can read a candidate copy instead
+# (evals/improve.py runs the old and the new prompt side by side)
+PROMPT_DIR: ContextVar[Path] = ContextVar("prompt_dir", default=DIR)
 _COMMENT = re.compile(r"<!--.*?-->", re.S)
 
 
 def _load(name: str) -> str:
-    return _COMMENT.sub("", (DIR / name).read_text()).strip()
+    return _COMMENT.sub("", (PROMPT_DIR.get() / name).read_text()).strip()
 
 
 def allowed_claims(language: str | None = None) -> str:

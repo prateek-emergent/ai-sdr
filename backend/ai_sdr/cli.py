@@ -166,6 +166,56 @@ async def cmd_demo_watch(args):
         await lk.aclose()
 
 
+def cmd_evals(args) -> int:
+    """The improvement loop's commands (ai_sdr/evals/__init__.py). Exit 1 when a simulation broke a MUST check."""
+    from .evals import reports
+    from .evals.scenarios import BY_ID, SCENARIOS
+    ids = None if getattr(args, "scenario", "all") == "all" else args.scenario.split(",")
+    if ids and (unknown := [i for i in ids if i not in BY_ID]):
+        print(f"unknown scenario(s): {', '.join(unknown)}; see `python -m ai_sdr.cli evals scenarios`")
+        return 2
+    if args.evals_cmd == "scenarios":
+        for sc in SCENARIOS:
+            print(f"{sc.id:20} {sc.language}  ends as {'/'.join(sc.outcomes):40} {sc.persona[:70]}")
+        return 0
+    if args.evals_cmd == "watch":
+        from .evals.watch import run_forever
+        asyncio.run(run_forever())
+        return 0
+    if args.evals_cmd == "grade":
+        from .evals.watch import grade_report
+
+        async def grade_all() -> int:
+            todo = [reports.get(r) for r in args.room] if args.room else list(reports.ungraded())
+            for report in todo:
+                if report is None:
+                    print("no such call")
+                    continue
+                g = await grade_report(report)
+                print(f"{report['room']}: score {g.get('score')}  failed {g.get('failed') or g.get('skipped') or '-'}")
+            return 0
+        return asyncio.run(grade_all())
+    if args.evals_cmd == "simulate":
+        from .evals.simulate import suite
+        s = asyncio.run(suite(ids, repeat=args.repeat, concurrency=args.concurrency, label=args.label,
+                              trace=args.trace))
+        print(f"\n{s['runs']} calls · outcome reached {s['outcome_pass_rate']} · score {s['score']} · "
+              f"must-checks failed in {s['must_failed_runs']} · errors {s['errors']}\nreport: {s['dir']}/summary.md")
+        return 1 if s["must_failed_runs"] else 0
+    if args.evals_cmd == "improve":
+        from pathlib import Path
+        from .evals.improve import apply_candidate, improve
+        if args.apply:
+            changed = apply_candidate(Path(args.apply))
+            print(f"updated {', '.join(changed) or 'nothing (same prompts)'}; next: python -m ai_sdr.agent.prompt_check, "
+                  "pytest, commit, push, pull on the pod")
+            return 0
+        r = asyncio.run(improve(days=args.days, scenarios=ids, repeat=args.repeat, max_edits=args.max_edits))
+        print(f"\nverdict: {r['verdict']}\nreport: {r['dir']}/report.md")
+        return 0
+    return 2
+
+
 def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
     if len(sys.argv) > 1 and sys.argv[1] == "agent":  # hand over to LiveKit's own CLI: dev | start | console
@@ -207,8 +257,28 @@ def main() -> None:
     p.add_argument("--scenario", default="all", help="comma list, or 'all'")
     p.add_argument("--repeat", type=int, default=1)
     p.add_argument("--gap", type=float, default=3.0, help="seconds between calls")
+    p = sub.add_parser("evals", help="grade calls, simulate customers, propose prompt improvements (ai_sdr/evals)")
+    ev = p.add_subparsers(dest="evals_cmd", required=True)
+    e = ev.add_parser("grade", help="grade finished calls now (default: every ungraded call of the last 24 h)")
+    e.add_argument("--room", action="append", help="one call's room, e.g. demo-31e3d4b4 (repeatable; regrades it)")
+    ev.add_parser("watch", help="keep grading calls as they end, in the foreground (the web backend starts one)")
+    ev.add_parser("scenarios", help="list the simulated customers")
+    e = ev.add_parser("simulate", help="simulated customers talk to Giulia (text); every call is graded")
+    e.add_argument("--scenario", default="all", help="comma list of scenario ids, or 'all'")
+    e.add_argument("--repeat", type=int, default=1)
+    e.add_argument("--concurrency", type=int, default=4)
+    e.add_argument("--label", default="", help="a name for this run, e.g. the change you're testing")
+    e.add_argument("--trace", action="store_true", help="also send the simulated calls to Langfuse")
+    e = ev.add_parser("improve", help="propose a prompt change from the failures and test it on the scenarios")
+    e.add_argument("--days", type=float, default=7, help="graded calls from this many days back")
+    e.add_argument("--scenario", default="all", help="comma list of scenario ids, or 'all'")
+    e.add_argument("--repeat", type=int, default=1, help="runs per scenario per side (2-3 for a steadier verdict)")
+    e.add_argument("--max-edits", type=int, default=4)
+    e.add_argument("--apply", metavar="CANDIDATE_DIR", help="copy an accepted candidate's prompts into the repo")
     args = ap.parse_args()
 
+    if args.cmd == "evals":
+        sys.exit(cmd_evals(args))
     if args.cmd == "probe":
         from .probe.run import run as run_probe
         from .probe.scenarios import SCENARIOS

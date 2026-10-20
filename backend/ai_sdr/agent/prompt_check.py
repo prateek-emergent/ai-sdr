@@ -39,11 +39,12 @@ def shape(text: str, tools: set[str]) -> dict:
     }
 
 
-def problems() -> list[str]:
+def problems(folder: Path = DIR) -> list[str]:
+    """folder: the prompts to check (the improvement loop checks a candidate copy before simulating it)."""
     tools = tool_names()
     out = []
     for it_name, en_name in PAIRS:
-        it, en = shape((DIR / it_name).read_text(), tools), shape((DIR / en_name).read_text(), tools)
+        it, en = shape((folder / it_name).read_text(), tools), shape((folder / en_name).read_text(), tools)
         for key in it:
             if it[key] != en[key]:
                 out.append(f"{it_name} vs {en_name}: {key} differ: it={it[key]} en={en[key]}")

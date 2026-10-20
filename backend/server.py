@@ -9,7 +9,9 @@ the pod by deploy/sync_pod.py, never edited on the pod).
 - GET  /api/agent-log            tail of the voice worker's log                                               [token]
 
 On startup it launches the voice worker supervisor (ai_sdr.voice.run): one per machine, survives backend reloads,
-restarts the worker if it dies, and rolls over to new code while calls in progress finish.
+restarts the worker if it dies, and rolls over to new code while calls in progress finish. It also launches the
+call grader (ai_sdr.evals.watch, 20 Oct): every finished call is graded into its report, and onto its Langfuse trace
+when tracing is on. EVALS_AUTO=0 turns the grader off.
 """
 import json
 import logging
@@ -100,6 +102,10 @@ def start_voice_worker() -> None:
     subprocess.Popen([sys.executable, "-m", "ai_sdr.voice.run"], cwd=ROOT, env=env, start_new_session=True,
                      stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     log.info("voice worker supervisor launch requested (agent %s, code %s)", AGENT, VERSION)
+    if os.environ.get("EVALS_AUTO", "1") != "0":
+        # same pattern: its own process and session, one per machine (lock), restarts itself on new code
+        subprocess.Popen([sys.executable, "-m", "ai_sdr.evals.watch"], cwd=ROOT, env={**os.environ, "AGENT_NAME": AGENT},
+                         start_new_session=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     import threading
     threading.Thread(target=_indexes, daemon=True).start()
 
