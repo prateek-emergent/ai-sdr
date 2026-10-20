@@ -102,6 +102,9 @@ class Settings:
     litellm_base_url: str = field(default_factory=lambda: _env(
         "LITELLM_BASE_URL", "https://litellm.central-infra-apps.emergentagent.com/v1"))
     litellm_api_key: str | None = field(default_factory=lambda: _env("LITELLM_API_KEY"))
+    # how get_available_slots hands the free times to the agent: "overview" (ranges to summarise) | "two" (two concrete
+    # slots on different days and halves of the day, already worded for the phone: 21 Oct research)
+    slot_offer: str = field(default_factory=lambda: _env("SLOT_OFFER", "overview"))
     # Groq (LPU inference): only for models picked on the Talk page (voice/llm_catalog.py); unset = not offered
     groq_api_key: str | None = field(default_factory=lambda: _env("GROQ_API_KEY"))
     groq_base_url: str = field(default_factory=lambda: _env("GROQ_BASE_URL", "https://api.groq.com/openai/v1"))

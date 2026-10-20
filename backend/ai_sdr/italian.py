@@ -77,6 +77,31 @@ def when(dt: datetime, now: datetime | None = None, language: str | None = None)
     return when_phrase_en(dt, now) if language == "en" else when_phrase(dt, now)
 
 
+HOURS_IT = ["mezzanotte", "l'una", "le due", "le tre", "le quattro", "le cinque", "le sei", "le sette", "le otto",
+            "le nove", "le dieci", "le undici", "mezzogiorno"]
+HOURS_EN = ["midnight", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "noon"]
+
+
+def spoken_slot(dt: datetime, now: datetime, language: str) -> str:
+    """A slot the way a person offers it on the phone (21 Oct research: weekday names, no digits, "del pomeriggio" for
+    afternoons): 'giovedì alle dieci', 'domani alle due e mezza del pomeriggio', 'Thursday at ten'. Both datetimes in
+    the prospect's time zone."""
+    delta = (dt.date() - now.date()).days
+    h12, half = dt.hour % 12 or 12, dt.minute >= 30
+    if language == "en":
+        day = "tomorrow" if delta == 1 else f"next {WEEKDAYS_EN[dt.weekday()]}" if delta >= 7 else WEEKDAYS_EN[dt.weekday()]
+        hour = "noon" if dt.hour == 12 and not half else HOURS_EN[h12]
+        at = f"at {hour}" + (" thirty" if half else "")
+        return f"{day} {at}" + (" in the afternoon" if 13 <= dt.hour < 19 else "")
+    day = "domani" if delta == 1 else f"{WEEKDAYS[dt.weekday()]} prossimo" if delta >= 7 else WEEKDAYS[dt.weekday()]
+    if dt.hour == 12:
+        at = "a mezzogiorno" + (" e mezza" if half else "")
+    else:
+        name = HOURS_IT[h12]
+        at = ("all'" + name[2:] if name.startswith("l'") else "al" + name) + (" e mezza" if half else "")
+    return f"{day} {at}" + (" del pomeriggio" if 13 <= dt.hour < 19 else "")
+
+
 def month_year(dt, language: str) -> str:
     """'marzo 2026' / 'March 2026' (for "customer since ...")."""
     return f"{(MONTHS_EN if language == 'en' else MONTHS)[dt.month - 1]} {dt.year}"

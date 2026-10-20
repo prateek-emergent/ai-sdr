@@ -12,9 +12,9 @@ from zoneinfo import ZoneInfo
 
 from .. import db
 from ..config import settings
-from ..integrations.calendar import Calendar, CalendarError
+from ..integrations.calendar import Calendar, CalendarError, pick_offer
 from ..integrations.hubspot import HubSpot
-from ..italian import MONTHS_EN, WEEKDAYS_EN, day_phrase, when as when_phrase
+from ..italian import MONTHS_EN, WEEKDAYS_EN, day_phrase, spoken_slot, when as when_phrase
 from ..timeutil import CallbackError, parse_day, resolve_callback
 
 log = logging.getLogger("ai_sdr.actions")
@@ -156,6 +156,14 @@ class CallActions:
             return self._say("Nessuno slot libero nei prossimi giorni. Proponi di far scrivere un collega via email.",
                              "No free slots in the next few days. Offer to have a colleague email them.")
         overview = self._week_overview(slots)
+        if settings().slot_offer == "two":
+            now = self._local(self._now())
+            a, b = (spoken_slot(self._local(x), now, self.state.language) for x in pick_offer(slots, self.state.tz, 2))
+            return self._say(f"Proponile queste due possibilità, dette così: \"{a}, oppure {b}?\" Se non le va bene "
+                             f"nessuna delle due, chiedi che giorno preferisce e usa gli altri orari liberi (ora "
+                             f"italiana): {overview}.",
+                             f"Offer these two, worded like this: \"{a}, or {b}?\" If neither works, ask what day "
+                             f"suits them and use the other free times (Italian time): {overview}.")
         return self._say(f"Orari liberi (ora italiana, slot da 30 minuti): {overview}. Riassumi in una o due frasi in "
                          "modo naturale (per esempio \"da lunedì a sabato, la mattina dalle nove e mezza e il "
                          "pomeriggio "
