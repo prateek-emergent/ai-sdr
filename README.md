@@ -75,3 +75,34 @@ python -m ai_sdr.cli evals scenarios
 | `EVALS_AUTO` | `1` | `0`: don't grade finished calls. |
 | `EVAL_JUDGE_MODEL` / `EVAL_CUSTOMER_MODEL` / `EVAL_IMPROVE_MODEL` | `claude-sonnet-5-5` / `claude-haiku-4-5` / `claude-opus-5-5` | Models on the same gateway as the calls (LiteLLM names). |
 | `EVAL_DIR` | `~/.ai-sdr/evals` | Where simulation runs and improvement reports go. |
+
+## Models and voice-AI metrics (20 Oct)
+
+- **Model picker** on the Talk page, next to the voice picker: the LLM that writes Giulia's replies for this test call (`ai_sdr/voice/llm_catalog.py`, `GET /api/llms`).
+  - Only models that answer without thinking first (or think as little as the provider allows).
+  - LiteLLM: GPT-4o, GPT-5.6 Terra, GPT-5.2, GPT-5.6 Luna and Claude Sonnet 5.5 (a quality reference). Each was measured on the pod with her real prompt, tools and opener; the numbers and the models left out, with reasons, are at the top of `llm_catalog.py`. Haiku 4.5 is still the steadiest (first token 0.63 s p50, 0.75 s p95). GPT-4o matches its median and gets the first sentence to the voice sooner (0.67 vs 0.80 s), but its slow replies are much slower (2.24 s p95).
+  - Groq: GPT-OSS 20B and 120B and Qwen3.8 27B, the chat models our key can see (Llama 3.3 70B and 3.1 8B are enterprise-only now). On Groq's free plan every Giulia request is refused as too large (HTTP 413): it is 8.7–9.4k tokens, against 8K tokens a minute on GPT-OSS and 7K input tokens a minute on Qwen. Until the key's organisation is on the Developer plan, a Groq pick falls back to the default on the first reply.
+  - The configured model (Claude Haiku 4.5 through LiteLLM) stays the default and stays behind every pick: a pick that errors or sends nothing for `LLM_ATTEMPT_TIMEOUT_S` (4 s) hands the reply to it. The page then shows "(fallback)" on the model chip and a line in "What Giulia did".
+  - Groq models are listed but disabled until `GROQ_API_KEY` is in `backend/.env`; then restart the backend (`supervisorctl restart backend` on the pod; the worker reloads `.env` by itself). They go through LiveKit's OpenAI plugin at Groq's OpenAI-compatible address, so no new package.
+  - Phone calls always use the configured model.
+- **Voice-AI metrics**, all from LiveKit's per-turn metrics, counted from the moment the caller stops talking unless noted:
+
+| Metric | What it measures |
+|---|---|
+| E2E (end-to-end) | caller stops → Giulia audible: the caller's wait |
+| EOU (end of turn) | caller stops → the turn detector says the turn is over |
+| STT (transcription) | caller stops → their words are written down |
+| TTFT (LLM first token) | the model is asked → its first token |
+| TTFS (LLM first sentence) | the model is asked → a whole sentence reaches the voice |
+| TTFB (TTS first audio) | the voice gets the sentence → its first audio |
+| TPS (LLM speed) | output tokens per second |
+
+  - **Talk page:** this reply's numbers and the call's p50 / p95 under the waterfall; the flow's steps carry the same names.
+  - **`/quality`:** p50 / p95 over the period, and a table per model (first token, first sentence, speed, end-to-end, checks passed, must-rules broken). Each reply counts for the model that actually wrote it.
+  - **`/calls`:** the model and TTFT per call; the call page adds TTFS, TPS and STT.
+
+| Setting | Default | What it does |
+|---|---|---|
+| `LLM_PROMPT_CACHE` | `1` | Claude through LiteLLM reads her tools and prompt (~10.7k of ~11.1k tokens a request) from Anthropic's cache. Pod A/B: first token p50 0.58 → 0.50 s. `0` turns it off. |
+| `GROQ_API_KEY` | — | Offers the Groq models in the Talk page's model picker. |
+| `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` | Groq's OpenAI-compatible address. |

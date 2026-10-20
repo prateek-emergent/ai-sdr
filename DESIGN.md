@@ -297,11 +297,11 @@ The page is a centred column: a 60px top bar with one console below it, both cap
 
 Inside the console, an alert (when there is one) sits inset 12px, then the control bar (at least 69px tall, 12px padding, a hairline below), then two panes. The transcript takes all the remaining width; the "What Giulia did" rail is fixed at 300px behind a hairline. Pane headings sit 16px from the top with a 20px inset, and pane content keeps the 20px inset. Transcript lines stack from the bottom with 3px between lines from one speaker and 14px before a new speaker. Each line runs to at most 78% of the pane or 64ch, Giulia's on the left and yours on the right.
 
-When idle, the control bar is one row: name (1fr), language (auto), app (1.5fr) and Start talking (auto), 8px apart. When live, it holds the call status on the left and the actions on the right.
+When idle, the control bar is two rows (since 20 Oct, when the model picker joined the voice picker), 8px apart: name (1fr), app (1fr) and language (auto) above; voice (1fr), model (1fr) and Start talking (auto) below. When live, it holds the call status on the left and the actions on the right.
 
-- **At 960px and below,** the setup row folds into two rows: name and language, then app and Start talking.
+- **At 960px and below,** the two setup rows stay as they are.
 - **At 760px and below,** the console becomes one column with the rail under the transcript (a hairline above it) and grows with its content. The transcript scrolls at 56dvh and the rail at up to 40vh, the gutter drops to 16px, and the live actions span the full width.
-- **At 600px and below,** the setup stacks one control per row, the two language segments split the width evenly, and lines may run to 88%.
+- **At 600px and below,** the setup stacks one control per row (name, language, voice, model, app, Start talking), the two language segments split the width evenly, and lines may run to 88%.
 
 The voice light tracks the console at every width. Each disc is placed from the console's side inset (the larger of 24px and half the window minus 560px). Giulia's disc is min(40vmax, 620px) across, centred 40px inside the console's left edge and 100px from the top. Yours is min(34vmax, 540px), centred 30px inside the right edge and 84px from the bottom.
 
@@ -405,6 +405,8 @@ The waterfall puts the same reply on one time axis, starting when you stopped ta
 
 A dashed line marks the target and a solid ink line marks the moment Giulia became audible. It is all monochrome: state is told by fill, outline, dash and motion.
 
+Each node's Meta line starts with the step's standard metric name (STT, EOU, TTFT, TTFB, E2E), then the model where known. Under the waterfall, the metrics row (added 20 Oct) lists the seven standard numbers in one raised, hairline-bordered 12px box split by hairlines: E2E, EOU, STT, TTFT, TTFS, TTFB and TPS. Each cell holds the abbreviation in ink at 11px with 0.05em tracking and the full name in third ink, this reply's value at 15px Title weight, and the call's p50 and p95 in third-ink Meta (for TPS, the median only). While her line still plays, E2E shows the page's own "≈" figure, the same one as the last flow node. The row is seven columns, then four at 1100px and below, then two at 600px and below.
+
 ### Quality Page
 `/quality` uses the same tokens as a scrolling page of glass panels, with no fixed console. Pass, fail and n/a are told by shape:
 - **Pass:** an outlined check.
@@ -412,6 +414,8 @@ A dashed line marks the target and a solid ink line marks the moment Giulia beca
 - **N/a:** a dashed ring.
 
 A must-rule is an outlined pill when the rule held, and turns into a solid ink tag in the call list when it broke. A call opens in a right-hand drawer that is frosted but nearly opaque (90%), so the page behind never competes with the verdicts.
+
+The speed panel (20 Oct) has seven tiles in the metrics row's order, each with the abbreviation in ink before its name, the p50 as the value and the p95 with its reply count as the note. Under them, the models table has one row per LLM, sorted by first token. The model name is Body Strong with the provider and reply count beneath it in third ink, and "fastest" marks the quickest model with enough replies. A model with too few replies to compare is greyed (third ink), not hidden. The table scrolls sideways inside its panel on a phone; the page never does.
 
 ## Do's and Don'ts
 

@@ -1,6 +1,6 @@
 # Giulia handoff
 
-What the voice agent looked like when we started from the preview pod (snapshot `0c20695`, VERSION `b7baff2`), what it is now (`824731c` plus local work), and how the backend changed in between. Diagrams: [before.html](before.html) and [after.html](after.html), made with the diagram-design skill.
+What the voice agent looked like when we started from the preview pod (snapshot `0c20695`, VERSION `b7baff2`), what it is now (`824731c` plus local work), and how the backend changed in between. Diagrams: [before.html](before.html) and [after.html](after.html), made with the diagram-design skill, plus [llm-context.html](llm-context.html): everything Giulia's LLM reads on a turn.
 
 ## What changed
 
@@ -84,7 +84,7 @@ Paths are under `backend/ai_sdr/` unless they say otherwise.
 
 - decisions.md: every change, why, and how to revert it.
 - README.md: every setting with its default.
-- docs/architecture/before.html and after.html: these diagrams.
+- docs/architecture/before.html and after.html: these diagrams. llm-context.html: where the LLM's context comes from (prompt files, call facts, customer card, tools, history).
 
 **Run and check**
 
