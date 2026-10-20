@@ -33,7 +33,7 @@ from ..integrations.hubspot import HubSpot
 from ..voice import config as voice_config
 from ..voice.factory import build_session
 from ..voice.providers import Voices, build_stt, elevenlabs_credits_left
-from ..voice import texture, tracing
+from ..voice import live, texture, tracing
 from ..voice.catalog import BY_ID as VOICE_CATALOG, CatalogVoice
 from ..voice.lifecycle import CallController
 from ..voice.line_watch import LineWatch
@@ -196,6 +196,8 @@ def _start_call(ctx: JobContext, channel: str, call_id: Any = None, tts_request:
     log.info("call starting: %s", json.dumps(CFG.describe()))
     controller.scope.spawn(sample_during_call(ctx.room, telemetry.transport_sample), "transport-stats")
     texture.keep_llm_warm(CFG, built.session, controller.scope)
+    if notify is not None:   # the Talk page's live timing chart (voice/live.py)
+        live.stream_timings(built.session, notify)
     return built.session, controller, telemetry, voices
 
 
@@ -293,6 +295,8 @@ async def web_demo(ctx: JobContext, meta: dict, connected: bool = False) -> None
     await session.start(agent=agent, room=ctx.room, record=False,
                         room_options=texture.room_options(CFG, delete_room_on_close=True))
     telemetry.event("session_started", took_s=round(time.monotonic() - t, 3))
+    if trace_id := tracing.trace_id(ctx.job.room.name):   # the page links to the call's Langfuse trace
+        live.send_soon(publish, "trace", {"trace_id": trace_id})
     if not connected:
         t = time.monotonic()
         await ctx.connect()

@@ -12,6 +12,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 from collections.abc import AsyncIterable, Awaitable, Callable
 from datetime import datetime
 from typing import Literal
@@ -21,6 +22,7 @@ from livekit import rtc
 from livekit.agents import Agent, ModelSettings, RunContext, function_tool, stt as lk_stt, tts as lk_tts
 from livekit.agents.llm import StopResponse, ToolError
 
+from ..voice import live
 from ..voice.lifecycle import CallController
 from ..voice.lines import DNC_SAID, GOODBYE_WORDS, line
 from ..voice.pronunciation import Pronunciations
@@ -94,6 +96,8 @@ class SDRAgent(Agent):
             yield frame
 
     async def _bounded(self, coro):
+        name = getattr(coro, "__qualname__", "tool").rsplit(".", 1)[-1]   # CallActions.book_meeting -> book_meeting
+        t = time.monotonic()
         try:
             async with asyncio.timeout(TOOL_TIMEOUT_S):
                 return await coro
@@ -101,6 +105,9 @@ class SDRAgent(Agent):
             log.warning("tool timed out after %ss", TOOL_TIMEOUT_S)
             raise ToolError("That took too long and didn't go through. Tell them a colleague will follow up by "
                             "email.") from None
+        finally:   # the Talk page's timing chart shows each step's duration (voice/live.py)
+            live.send_soon(self.actions.notify, "timing",
+                           {"role": "tool", "tool": name, "took_s": round(time.monotonic() - t, 3)})
 
     async def _with_filler(self, context: RunContext, filler: str, coro: Awaitable):
         """A slow calendar step (up to 8 s per request, 2-3 requests per booking): if she has been silent for
