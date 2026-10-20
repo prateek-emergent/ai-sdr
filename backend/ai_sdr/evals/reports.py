@@ -80,17 +80,31 @@ LIST_FIELDS = ("room", "channel", "started_at", "ended_at", "duration_s", "versi
                "extra", "eval", "eval_reviews", "eval_regrades", "trace_id")
 
 
-def calls(hours: float = 168, limit: int = 300) -> list[dict]:
-    """Calls from the last `hours`, newest first, graded or not, with only LIST_FIELDS."""
+TURN_METRICS = "livekit.chat_history.items.metrics"   # LiveKit's per-turn numbers, where the report keeps them
+
+
+def _turn_metrics(report: dict) -> list[dict]:
+    items = (((report.get("livekit") or {}).get("chat_history") or {}).get("items")) or []
+    return [i["metrics"] for i in items if isinstance(i, dict) and i.get("metrics")]
+
+
+def calls(hours: float = 168, limit: int = 300, turns: bool = False) -> list[dict]:
+    """Calls from the last `hours`, newest first, graded or not, with only LIST_FIELDS. turns: also each turn's
+    metrics (turn_metrics: LiveKit's MetricsReport per conversation item), for speed per model."""
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     sink, folder = _sink()
     if sink == "mongodb":
         client, coll = _mongo()
+        fields = {"_id": 0, **{f: 1 for f in LIST_FIELDS}, **({TURN_METRICS: 1} if turns else {})}
         try:
-            return list(coll.find({"started_at": {"$gte": since}}, {"_id": 0, **{f: 1 for f in LIST_FIELDS}})
-                        .sort("started_at", -1).limit(limit))
+            found = list(coll.find({"started_at": {"$gte": since}}, fields).sort("started_at", -1).limit(limit))
         finally:
             client.close()
+        if turns:
+            for r in found:
+                r["turn_metrics"] = _turn_metrics(r)
+                r.pop("livekit", None)
+        return found
     out = []
     if folder.exists():
         for path in folder.glob("*.json"):
@@ -99,7 +113,10 @@ def calls(hours: float = 168, limit: int = 300) -> list[dict]:
             except (OSError, ValueError):
                 continue
             if (report.get("started_at") or "") >= since:
-                out.append({f: report.get(f) for f in LIST_FIELDS if f in report})
+                row = {f: report.get(f) for f in LIST_FIELDS if f in report}
+                if turns:
+                    row["turn_metrics"] = _turn_metrics(report)
+                out.append(row)
     out.sort(key=lambda r: r.get("started_at") or "", reverse=True)
     return out[:limit]
 

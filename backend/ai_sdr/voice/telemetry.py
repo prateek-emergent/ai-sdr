@@ -20,7 +20,10 @@ from .config import VoiceConfig
 log = logging.getLogger("ai_sdr.voice")
 
 DEAD_AIR_S = 5.0
-LATENCY_KEYS = ("e2e_latency", "llm_node_ttft", "tts_node_ttfb", "end_of_turn_delay", "transcription_delay")
+# LiveKit's per-turn metrics (MetricsReport on each conversation item): the standard voice-AI numbers.
+# end_of_turn_delay and transcription_delay are on the person's turns, the rest on Giulia's.
+LATENCY_KEYS = ("e2e_latency", "llm_node_ttft", "llm_node_ttfs", "tts_node_ttfb", "end_of_turn_delay",
+                "transcription_delay", "llm_node_tps")
 
 
 def _pct(values: list[float], q: int) -> float | None:
@@ -142,8 +145,12 @@ class CallTelemetry:
             "e2e_p50": _pct(e2e, 50), "e2e_p95": _pct(e2e, 95), "e2e_max": round(max(e2e), 3) if e2e else None,
             "dead_air_turns": sum(1 for v in e2e if v >= DEAD_AIR_S),
             "llm_ttft_p50": _pct(vals["llm_node_ttft"], 50), "llm_ttft_p95": _pct(vals["llm_node_ttft"], 95),
+            "llm_ttfs_p50": _pct(vals["llm_node_ttfs"], 50), "llm_ttfs_p95": _pct(vals["llm_node_ttfs"], 95),
+            "llm_tps_p50": _pct(vals["llm_node_tps"], 50),
             "tts_ttfb_p50": _pct(vals["tts_node_ttfb"], 50), "tts_ttfb_p95": _pct(vals["tts_node_ttfb"], 95),
             "eot_p50": _pct(vals["end_of_turn_delay"], 50), "eot_p95": _pct(vals["end_of_turn_delay"], 95),
+            "stt_p50": _pct(vals["transcription_delay"], 50), "stt_p95": _pct(vals["transcription_delay"], 95),
+            **self._models(history_items),
             "eot_hit_max": sum(1 for v in vals["end_of_turn_delay"] if v >= self.cfg.endpointing_max - 0.05),
             "errors": len(self.errors), "task_failures": len(self.task_failures),
             "chars_spoken": self.chars_spoken,
@@ -156,6 +163,25 @@ class CallTelemetry:
             **self._stalls(),
             "transport": self.transport[-1] if self.transport else None,
         }
+
+    def _models(self, history_items: list[dict]) -> dict:
+        """Which models actually did the work (a picked LLM can fall back mid-call: each turn names its own)."""
+        def most(key: str, *, replies_only: bool) -> tuple[str | None, dict[str, int]]:
+            seen: dict[str, int] = {}
+            for item in history_items:
+                m = item.get("metrics") or {}
+                if replies_only and m.get("e2e_latency") is None:
+                    continue
+                name = (m.get(key) or {}).get("model_name") if isinstance(m.get(key), dict) else None
+                if name:
+                    seen[name] = seen.get(name, 0) + 1
+            return (max(seen, key=seen.get) if seen else None), seen
+
+        llm_model, llm_models = most("llm_metadata", replies_only=True)
+        pick = next((e.get("choice") for e in self.events if e["kind"] == "llm"), None)
+        return {"llm_model": llm_model, "llm_models": llm_models, "llm_pick": pick,
+                "tts_model": most("tts_metadata", replies_only=True)[0],
+                "stt_model": most("stt_metadata", replies_only=False)[0]}
 
     def _pauses(self) -> dict:
         """Giulia going quiet in the MIDDLE of a line and carrying on: what a caller hears as "stuck". Her line is

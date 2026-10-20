@@ -33,6 +33,7 @@ from livekit import api
 from pydantic import BaseModel, Field
 
 from ai_sdr.voice.catalog import BY_ID as VOICE_CATALOG, public as voice_catalog
+from ai_sdr.voice import llm_catalog
 
 ROOT = Path(__file__).parent
 # Settings the platform itself provides (on the deployed app: Emergent's Secrets panel) are in the environment before
@@ -162,6 +163,8 @@ class SessionStart(BaseModel):
     app: str | None = Field(None, max_length=60)
     # a voice the page offers (ai_sdr/voice/catalog.py), to hear this test call in it
     voice: str | None = Field(None, max_length=60)
+    # a model the page offers (ai_sdr/voice/llm_catalog.py), to compare its speed on this test call
+    llm: str | None = Field(None, max_length=60)
     # test calls only (the probe): pick the voice chain, e.g. ["deepgram"] so automated runs don't spend
     # ElevenLabs credits. Ignored without the debug token.
     tts_chain: list[str] | None = Field(None, max_length=3)
@@ -172,6 +175,13 @@ class SessionStart(BaseModel):
 def voices() -> dict:
     """The voices the Talk page offers, five per language (ai_sdr/voice/catalog.py)."""
     return {"voices": voice_catalog()}
+
+
+@app.get("/api/llms")
+def llms() -> dict:
+    """The models the Talk page offers (ai_sdr/voice/llm_catalog.py); a provider without its key is listed as such."""
+    return {"default": llm_catalog.default_label(), "default_model": llm_catalog.default_model(),
+            "llms": llm_catalog.public()}
 
 
 @app.post("/api/session")
@@ -188,6 +198,8 @@ def session_start(body: SessionStart, background: BackgroundTasks) -> dict:
         meta["app"] = body.app.strip()
     if body.voice in VOICE_CATALOG:
         meta["voice"] = body.voice
+    if body.llm in llm_catalog.BY_ID and llm_catalog.available(llm_catalog.BY_ID[body.llm]):
+        meta["llm"] = body.llm
     expected = os.environ.get("DEBUG_TOKEN", "")
     if body.tts_chain and expected and secrets.compare_digest(body.test_token or "", expected):
         meta["tts_chain"] = [t for t in body.tts_chain if t in ("deepgram", "elevenlabs", "livekit")]
@@ -298,17 +310,18 @@ def quality_rubric() -> dict:
     return rubric(settings().eval_judge_model, GRADER_VERSION)
 
 
-def _quality_reports(hours: int, channel: str) -> list[dict]:
+def _quality_reports(hours: int, channel: str, turns: bool = False) -> list[dict]:
     from ai_sdr.evals import reports
-    rows = reports.calls(hours=max(1, min(hours, 24 * 30)), limit=500)
+    rows = reports.calls(hours=max(1, min(hours, 24 * 30)), limit=500, turns=turns)
     return [r for r in rows if not channel or r.get("channel") == channel]
 
 
 @app.get("/api/quality/summary")
 def quality_summary(token: str = "", hours: int = 168, channel: str = "") -> dict:
     _require_token(token)
-    from ai_sdr.evals.quality import summary
-    return json.loads(json.dumps(summary(_quality_reports(hours, channel)), default=str))
+    from ai_sdr.evals.quality import speed, summary
+    rows = _quality_reports(hours, channel, turns=True)   # turns: each reply's numbers, for speed per model
+    return json.loads(json.dumps({**summary(rows), "speed": speed(rows)}, default=str))
 
 
 @app.get("/api/quality/calls")

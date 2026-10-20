@@ -54,6 +54,7 @@ def row(report: dict) -> dict:
         "score": g.get("score"), "skipped": g.get("skipped"), "graded": bool(g),
         "failed": g.get("failed") or [], "must_failed": g.get("must_failed") or [],
         "e2e_p50": s.get("e2e_p50"), "turns": s.get("turns"), "trace_id": report.get("trace_id"),
+        "llm_model": s.get("llm_model"), "ttft_p50": s.get("llm_ttft_p50"),
         "reviewed": len(reviews), "disagreed": sum(1 for r in reviews.values() if not r.get("agree")),
     }
 
@@ -95,6 +96,66 @@ def summary(reports: list[dict]) -> dict:
                    "took_s_p50": _median(took)},
         "reviews": review_stats(graded), "regrades": regrade_stats(graded),
     }
+
+
+# The standard voice-AI numbers, from LiveKit's per-turn metrics (reports.calls(turns=True)): key -> MetricsReport
+# field. eou and stt are measured on the person's turns, the rest on Giulia's replies.
+SPEED = {"e2e": "e2e_latency", "eou": "end_of_turn_delay", "stt": "transcription_delay", "ttft": "llm_node_ttft",
+         "ttfs": "llm_node_ttfs", "ttfb": "tts_node_ttfb", "tps": "llm_node_tps"}
+PER_MODEL = ("e2e", "ttft", "ttfs", "ttfb", "tps")   # the ones a different LLM changes
+
+
+def _pcts(values: list[float]) -> dict:
+    if not values:
+        return {"p50": None, "p95": None, "n": 0}
+    if len(values) == 1:
+        return {"p50": round(values[0], 3), "p95": round(values[0], 3), "n": 1}
+    q = statistics.quantiles(values, n=100, method="inclusive")
+    return {"p50": round(q[49], 3), "p95": round(q[94], 3), "n": len(values)}
+
+
+def _provider(host: str | None) -> str | None:
+    """LiveKit names an LLM's provider by its host; the page names it by the service."""
+    if not host:
+        return None
+    return "Groq" if "groq" in host else "LiteLLM" if "litellm" in host else host
+
+
+def speed(reports: list[dict]) -> dict:
+    """Every reply's numbers over the window (p50 / p95 per metric), and the same per LLM next to its calls' grades.
+    A reply counts for the model that actually wrote it (a picked model can fall back mid-call); a call's grade
+    counts for the model that wrote most of its replies."""
+    overall: dict[str, list[float]] = {k: [] for k in SPEED}
+    per: dict[str, dict] = {}
+    for r in reports:
+        wrote: Counter = Counter()
+        for m in r.get("turn_metrics") or []:
+            for key, field in SPEED.items():
+                if isinstance(m.get(field), (int, float)):
+                    overall[key].append(float(m[field]))
+            meta = m.get("llm_metadata") if isinstance(m.get("llm_metadata"), dict) else {}
+            if m.get("e2e_latency") is None or not meta.get("model_name"):
+                continue
+            model = meta["model_name"]
+            wrote[model] += 1
+            slot = per.setdefault(model, {"provider": _provider(meta.get("model_provider")), "calls": 0,
+                                          "scores": [], "must_failed_calls": 0, **{k: [] for k in PER_MODEL}})
+            for key in PER_MODEL:
+                if isinstance(m.get(SPEED[key]), (int, float)):
+                    slot[key].append(float(m[SPEED[key]]))
+        if wrote:
+            slot = per[wrote.most_common(1)[0][0]]
+            slot["calls"] += 1
+            g = r.get("eval") or {}
+            if g.get("score") is not None:
+                slot["scores"].append(g["score"])
+                slot["must_failed_calls"] += 1 if g.get("must_failed") else 0
+    models = [{"model": model, "provider": v["provider"], "calls": v["calls"], "replies": len(v["e2e"]),
+               "graded": len(v["scores"]), "must_failed_calls": v["must_failed_calls"],
+               "score": round(sum(v["scores"]) / len(v["scores"]), 3) if v["scores"] else None,
+               **{k: _pcts(v[k]) for k in PER_MODEL}} for model, v in per.items()]
+    models.sort(key=lambda x: (x["ttft"]["p50"] is None, x["ttft"]["p50"] or 0))
+    return {"overall": {k: _pcts(v) for k, v in overall.items()}, "models": models}
 
 
 def review_stats(reports: list[dict]) -> dict:
