@@ -106,7 +106,7 @@ function List({ token }) {
       )}
       <div style={S.tableWrap}>
         <table style={S.table}>
-          <thead><tr>{["when", "channel", "length", "turns", "opener", "reply p50", "p95", "max", "dead air", "stuck", "errors", "ended by", "outcome", "version"].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
+          <thead><tr>{["when", "channel", "length", "turns", "LLM", "opener", "reply p50", "p95", "max", "LLM first token", "dead air", "stuck", "errors", "ended by", "outcome", "version"].map((h) => <th key={h} style={S.th}>{h}</th>)}</tr></thead>
           <tbody>
             {calls.map((c) => {
               const m = c.summary || {};
@@ -116,10 +116,12 @@ function List({ token }) {
                   <td style={S.td}>{c.channel === "phone" ? "📞 phone" : "🌐 browser"}</td>
                   <td style={S.td}>{c.duration_s ? `${Math.round(c.duration_s)}s` : "–"}</td>
                   <td style={S.td}>{m.turns ?? "–"}</td>
+                  <td style={{ ...S.td, ...S.mono }} title={m.llm_pick ? `picked on the Talk page: ${m.llm_pick}` : "the configured model"}>{m.llm_model || "–"}{m.llm_pick ? " *" : ""}</td>
                   <td style={{ ...S.td, color: tone(m.opener_audio_s, TARGET.opener) }}>{s(m.opener_audio_s)}</td>
                   <td style={{ ...S.td, color: tone(m.e2e_p50, TARGET.reply), fontWeight: 600 }}>{s(m.e2e_p50)}</td>
                   <td style={{ ...S.td, color: tone(m.e2e_p95, TARGET.reply) }}>{s(m.e2e_p95)}</td>
                   <td style={{ ...S.td, color: tone(m.e2e_max, TARGET.reply) }}>{s(m.e2e_max)}</td>
+                  <td style={S.td}>{s(m.llm_ttft_p50)}</td>
                   <td style={{ ...S.td, color: m.dead_air_turns ? "#dc2626" : "#94a3b8" }}>{m.dead_air_turns ?? "–"}</td>
                   <td style={{ ...S.td, color: m.agent_mid_line_stops ? "#dc2626" : "#94a3b8" }} title="times Giulia went quiet mid-line">{m.agent_mid_line_stops ?? "–"}</td>
                   <td style={{ ...S.td, color: (m.errors || m.task_failures) ? "#dc2626" : "#94a3b8" }}>{(m.errors || 0) + (m.task_failures || 0)}</td>
@@ -129,7 +131,7 @@ function List({ token }) {
                 </tr>
               );
             })}
-            {calls.length === 0 && <tr><td style={S.td} colSpan={14}>No calls yet.</td></tr>}
+            {calls.length === 0 && <tr><td style={S.td} colSpan={16}>No calls yet.</td></tr>}
           </tbody>
         </table>
       </div>
@@ -170,16 +172,19 @@ function Detail({ room, token }) {
     <>
       <a href="/calls#" style={S.link}>← all calls</a>
       <div style={S.h2}>{r.channel === "phone" ? "📞" : "🌐"} {when(r.started_at)} · {Math.round(r.duration_s || 0)}s · {closeLabel(r.close)}{r.extra?.disposition ? ` · outcome: ${r.extra.disposition}` : ""}</div>
-      <div style={S.muted}>{r.room} · {r.agent_name} · code {r.version} · language {r.extra?.language || r.config?.language} · STT {r.config?.stt} · voice {(r.config?.tts_chain || []).join(" → ")} · LLM {(r.config?.llm_routes || []).join(" → ")} · turn model {r.turn_detector_used}</div>
+      <div style={S.muted}>{r.room} · {r.agent_name} · code {r.version} · language {r.extra?.language || r.config?.language} · STT {r.config?.stt} · voice {(r.config?.tts_chain || []).join(" → ")} · LLM {m.llm_model ? `${m.llm_model}${m.llm_pick ? " (picked)" : ""}` : (r.config?.llm_routes || []).join(" → ")} · turn model {r.turn_detector_used}</div>
 
       <div style={S.tiles}>
         <Tile label="opener audio" value={s(m.opener_audio_s)} color={tone(m.opener_audio_s, TARGET.opener)} />
         <Tile label="reply p50" value={s(m.e2e_p50)} color={tone(m.e2e_p50, TARGET.reply)} />
         <Tile label="reply p95" value={s(m.e2e_p95)} color={tone(m.e2e_p95, TARGET.reply)} />
         <Tile label="reply max" value={s(m.e2e_max)} color={tone(m.e2e_max, TARGET.reply)} />
-        <Tile label="LLM first word p50 / p95" value={`${s(m.llm_ttft_p50)} / ${s(m.llm_ttft_p95)}`} />
-        <Tile label="voice first audio p50" value={s(m.tts_ttfb_p50)} />
-        <Tile label="end-of-turn wait p50 / p95" value={`${s(m.eot_p50)} / ${s(m.eot_p95)}`} />
+        <Tile label="LLM first token (TTFT) p50 / p95" value={`${s(m.llm_ttft_p50)} / ${s(m.llm_ttft_p95)}`} />
+        <Tile label="LLM first sentence (TTFS) p50" value={s(m.llm_ttfs_p50)} />
+        <Tile label="LLM speed p50" value={m.llm_tps_p50 != null ? `${Math.round(m.llm_tps_p50)} tok/s` : "–"} />
+        <Tile label="voice first audio (TTFB) p50" value={s(m.tts_ttfb_p50)} />
+        <Tile label="end of turn (EOU) p50 / p95" value={`${s(m.eot_p50)} / ${s(m.eot_p95)}`} />
+        <Tile label="transcription (STT) p50" value={s(m.stt_p50)} />
         <Tile label="dead-air turns" value={m.dead_air_turns} color={m.dead_air_turns ? "#dc2626" : "#16a34a"} />
         <Tile label="errors · task failures" value={`${m.errors || 0} · ${m.task_failures || 0}`} color={(m.errors || m.task_failures) ? "#dc2626" : "#16a34a"} />
         <Tile label="stopped mid-line (longest pause)" value={`${m.agent_mid_line_stops ?? 0}${m.agent_pause_max_s ? ` (${s(m.agent_pause_max_s)})` : ""}`} color={m.agent_mid_line_stops ? "#dc2626" : "#16a34a"} />

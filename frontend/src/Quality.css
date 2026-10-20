@@ -6,7 +6,8 @@
 html[data-talk-theme="dark"] .quality { --drawer: rgba(22, 22, 22, 0.9); }
 .quality .topbar-nav button.nav-link { font: inherit; font-weight: 500; }
 
-.q-main { display: grid; gap: 16px; width: 100%; max-width: 1120px; margin: 0 auto; }
+/* minmax(0, 1fr): a wide table scrolls inside its panel instead of widening the page */
+.q-main { display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; width: 100%; max-width: 1120px; margin: 0 auto; }
 .q-panel { padding: 16px 20px 20px; border-radius: 20px; animation: rise 0.22s var(--ease) both; }
 .q-columns { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1fr); gap: 16px; align-items: start; }
 .q-stack { display: grid; gap: 16px; min-width: 0; }
@@ -96,6 +97,16 @@ html[data-talk-theme="dark"] .quality { --drawer: rgba(22, 22, 22, 0.9); }
 .q-rubric dd { margin: 2px 0 0; color: var(--ink-2); font-size: 13px; }
 
 .q-table { width: 100%; margin-top: 14px; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+/* speed: the standard voice-AI numbers, then one row per model */
+.q-speed { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.q-abbr { margin-right: 6px; color: var(--ink); font-weight: 650; letter-spacing: 0.05em; text-decoration: none; }
+.q-table-wrap { overflow-x: auto; scrollbar-width: thin; scrollbar-color: var(--thumb) transparent; }
+.q-models { min-width: 760px; }
+.q-models td { white-space: nowrap; }
+.q-models small { display: block; color: var(--ink-3); font-size: 12px; }
+.q-model { font-weight: 600; }
+.q-models tr[data-few="true"] td { color: var(--ink-3); }
+.q-footnote { margin: 10px 0 0; color: var(--ink-3); font-size: 12px; }
 .q-table th { padding: 6px 8px; border-bottom: 1px solid var(--hairline); color: var(--ink-3); font-size: 12px; font-weight: 500; text-align: left; }
 .q-table td { padding: 7px 8px; border-bottom: 1px solid var(--hairline); }
 
@@ -195,6 +206,13 @@ html[data-talk-theme="dark"] .q-overlay { background: rgba(0, 0, 0, 0.5); }
 @keyframes fade { from { opacity: 0; } }
 @keyframes slide { from { opacity: 0; transform: translateX(24px); } }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+@media (max-width: 1100px) {
+  .q-speed { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+@media (max-width: 600px) {
+  .q-speed { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 
 @media (max-width: 900px) {
   .q-columns { grid-template-columns: minmax(0, 1fr); }

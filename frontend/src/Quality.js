@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, Check, Copy, Minus, Moon, RefreshCw, Sun, ThumbsDown, ThumbsUp, X } from "lucide-react";
-import { API, useLangfuse, useTheme } from "./shared";
+import { API, METRICS, metricValue, useLangfuse, useLlms, useTheme } from "./shared";
 import "./App.css";
 import "./Quality.css";
 
@@ -136,6 +136,13 @@ function Board({ token, langfuse, onWrongToken }) {
         {data ? <Overview data={data} calls={calls} /> : <p className="q-loading">Loading the grades…</p>}
       </section>
 
+      {data?.speed && (
+        <section className="q-panel glass" aria-labelledby="speed">
+          <div className="q-head"><h2 id="speed">Speed, and which model is fastest</h2><span className="q-hint">every reply in the period · pick a model on the Talk page to compare it</span></div>
+          <Speed speed={data.speed} />
+        </section>
+      )}
+
       {data && (
         <div className="q-columns">
           <section className="q-panel glass" aria-labelledby="slips">
@@ -210,6 +217,53 @@ function Timeline({ calls, trend, average }) {
   );
 }
 
+const FEW_REPLIES = 10; // below this a model's numbers are too few to compare
+
+// The standard voice-AI numbers over every reply in the period, then the same per LLM next to its calls' grades: a
+// reply counts for the model that actually wrote it (a picked model can fall back mid-call).
+function Speed({ speed }) {
+  const { name } = useLlms();
+  const models = speed.models || [];
+  const fastest = models.find((m) => m.replies >= FEW_REPLIES && m.ttft.p50 != null);
+  return (
+    <>
+      <div className="q-tiles q-speed">
+        {METRICS.map((m) => {
+          const v = speed.overall?.[m.key] || {};
+          return (
+            <div className="q-tile" key={m.key} title={m.what}>
+              <span className="q-tile-name"><abbr className="q-abbr">{m.abbr}</abbr>{m.name}</span>
+              <span className="q-tile-value">{metricValue(m, v.p50)}</span>
+              <span className="q-tile-note">{v.n ? (m.unit ? `median of ${v.n} replies` : `p95 ${metricValue(m, v.p95)} · ${v.n} ${m.user ? "turns" : "replies"}`) : "no replies yet"}</span>
+            </div>
+          );
+        })}
+      </div>
+      {models.length === 0 ? <p className="q-loading">No replies with timings in this period.</p> : (
+        <div className="q-table-wrap">
+          <table className="q-table q-models">
+            <thead><tr><th>Model</th><th>Calls</th><th title="LLM first token">TTFT p50 · p95</th><th title="first sentence to the voice">TTFS p50</th><th title="tokens per second">Speed</th><th title="the caller's wait">E2E p50 · p95</th><th>Checks passed</th><th>Broke a must-rule</th></tr></thead>
+            <tbody>
+              {models.map((m) => (
+                <tr key={m.model} data-few={m.replies < FEW_REPLIES}>
+                  <td><span className="q-model">{name(m.model)}</span><small>{[m.provider, `${m.replies} ${m.replies === 1 ? "reply" : "replies"}`].filter(Boolean).join(" · ")}{m === fastest ? " · fastest" : ""}</small></td>
+                  <td>{m.calls}</td>
+                  <td><b>{metricValue(METRICS[3], m.ttft.p50)}</b> · {metricValue(METRICS[3], m.ttft.p95)}</td>
+                  <td>{metricValue(METRICS[4], m.ttfs.p50)}</td>
+                  <td>{metricValue(METRICS[6], m.tps.p50)}</td>
+                  <td>{metricValue(METRICS[0], m.e2e.p50)} · {metricValue(METRICS[0], m.e2e.p95)}</td>
+                  <td>{m.graded ? `${pct(m.score)} of ${m.graded}` : "–"}</td>
+                  <td>{m.graded ? m.must_failed_calls : "–"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p className="q-footnote">Sorted by first token. Fewer than {FEW_REPLIES} replies (greyed) is too few to compare; E2E also includes the turn detector and the voice, which don't change with the model.</p>
+        </div>
+      )}
+    </>
+  );
+}
 function Checks({ checks, reviews, selected, onSelect }) {
   const rows = Object.entries(checks || {}).sort(([, a], [, b]) => {
     if (a.pass_rate === null) return 1;
@@ -291,7 +345,7 @@ function CallList({ calls, langfuse, onOpen }) {
       {calls.map((c) => (
         <li key={c.room} className="q-call">
           <button type="button" className="q-call-main" onClick={() => onOpen(c.room)}>
-            <span className="q-call-when">{when(c.started_at)}<small>{c.channel}{c.language ? ` · ${c.language}` : ""}</small></span>
+            <span className="q-call-when">{when(c.started_at)}<small>{[c.channel, c.language, c.llm_model].filter(Boolean).join(" · ")}</small></span>
             <span className="q-call-score">
               {c.graded && c.score != null ? <><span className="q-meter small" aria-hidden="true"><span style={{ width: `${100 * c.score}%` }} /></span>{pct(c.score)}</>
                 : <span className="q-muted">{c.skipped ? "nobody spoke" : "not graded yet"}</span>}

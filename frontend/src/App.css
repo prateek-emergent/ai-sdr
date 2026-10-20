@@ -238,6 +238,13 @@ html[data-talk-theme="dark"] .talk {
 .in-name { grid-area: name; }
 .in-app { grid-area: app; }
 .in-voice { grid-area: voice; }
+.in-model { grid-area: model; }
+/* with a model to pick too: two rows, the text fields above the two picks, language and the button on the right */
+.setup.with-voice.with-model,
+.setup.with-model {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  grid-template-areas: "name app lang" "voice model go";
+}
 .setup .segmented { grid-area: lang; }
 .setup .btn { grid-area: go; }
 
@@ -490,6 +497,7 @@ html[data-talk-theme="dark"] .talk {
 @media (max-width: 960px) {
   .setup { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name lang" "app go"; }
   .setup.with-voice { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "name voice lang" "app app go"; }
+  .setup.with-voice.with-model { grid-template-areas: "name app lang" "voice model go"; }
 }
 
 @media (max-width: 760px) {
@@ -512,6 +520,8 @@ html[data-talk-theme="dark"] .talk {
   .topbar-nav { flex-wrap: wrap; margin-left: -10px; }
   .setup { grid-template-columns: minmax(0, 1fr); grid-template-areas: "name" "lang" "app" "go"; }
   .setup.with-voice { grid-template-columns: minmax(0, 1fr); grid-template-areas: "name" "lang" "voice" "app" "go"; }
+  .setup.with-model,
+  .setup.with-voice.with-model { grid-template-columns: minmax(0, 1fr); grid-template-areas: "name" "lang" "voice" "model" "app" "go"; }
   .segmented label { flex: 1; }
   .segmented span { width: 100%; }
   .line { max-width: 88%; }

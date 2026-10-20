@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useRef, useState } from "react";
 import { AudioLines, Brain, CalendarSearch, ChevronDown, Ear, Hourglass, Mic, Volume2, Wrench } from "lucide-react";
+import { METRICS, metricValue, percentile } from "./shared";
 import "./Timing.css";
 
 // The live timing strip on the Talk page (20 Oct: "I want to see the time each step takes, live, as a flow chart").
@@ -24,6 +25,7 @@ const TOOLS = {
 
 const sec = (v) => (v === null || v === undefined ? "–" : `${v.toFixed(2)} s`);
 const model = (m) => (m ? m.replace(/^claude-/, "").replace(/^aura-2-/, "aura ").replace(/-\d{8}$/, "") : null);
+const tagged = (abbr, m) => [abbr, model(m)].filter(Boolean).join(" · "); // the metric's standard name, and who did it
 
 // turns: finished replies; pending: the reply being made (the person's part and tools so far)
 function reducer(state, action) {
@@ -113,17 +115,17 @@ export default function Timing({ turns, pending, agentState, live }) {
   const yourTurn = live && agentState === "listening" && !pending;
   const nodes = [
     { key: "you", Icon: Mic, label: "You", value: yourTurn ? "your turn" : "0 s", state: yourTurn ? "active" : current ? "done" : "idle" },
-    { key: "heard", Icon: Ear, label: "Heard", sub: model(u.stt_model), value: sec(u.stt_s), state: u.stt_s != null ? "done" : "idle" },
-    { key: "turn", Icon: Hourglass, label: "Turn over", value: sec(u.eot_s), state: u.eot_s != null ? "done" : "idle" },
+    { key: "heard", Icon: Ear, label: "Heard", sub: tagged("STT", u.stt_model), value: sec(u.stt_s), state: u.stt_s != null ? "done" : "idle" },
+    { key: "turn", Icon: Hourglass, label: "Turn over", sub: "EOU", value: sec(u.eot_s), state: u.eot_s != null ? "done" : "idle" },
     ...tools.map((t, i) => {
       const [Icon, label] = TOOLS[t.tool] || [Wrench, t.tool];
       return { key: `tool${i}`, Icon, label, value: sec(t.took_s), state: "done", tool: true };
     }),
-    { key: "think", Icon: Brain, label: "Thinking", sub: model(a.llm_model), state: a.ttft_s != null || heardHer ? "done" : waiting ? "active" : "idle",
+    { key: "think", Icon: Brain, label: "Thinking", sub: tagged("TTFT", a.llm_model), state: a.ttft_s != null || heardHer ? "done" : waiting ? "active" : "idle",
       value: a.ttft_s != null ? sec(a.ttft_s) : waiting ? "thinking…" : heardHer ? "…" : "–" },
-    { key: "voice", Icon: AudioLines, label: "Voice", sub: model(a.tts_model), value: a.ttfb_s != null ? sec(a.ttfb_s) : heardHer ? "…" : "–",
+    { key: "voice", Icon: AudioLines, label: "Voice", sub: tagged("TTFB", a.tts_model), value: a.ttfb_s != null ? sec(a.ttfb_s) : heardHer ? "…" : "–",
       state: a.ttfb_s != null || heardHer ? "done" : "idle" },
-    { key: "giulia", Icon: Volume2, label: "Giulia speaks", end: true,
+    { key: "giulia", Icon: Volume2, label: "Giulia speaks", sub: "E2E", end: true,
       value: a.e2e_s != null ? sec(a.e2e_s) : heardHer ? `≈ ${(watch.seconds + (u.eot_s ?? 0)).toFixed(2)} s` : "–",
       state: a.e2e_s != null || heardHer ? "done" : speakingNow && pending ? "active" : "idle" },
   ];
@@ -162,6 +164,7 @@ export default function Timing({ turns, pending, agentState, live }) {
         ))}
       </ol>
       <Waterfall turn={current} liveWait={waiting ? { from: u.eot_s ?? 0, seconds: watch.seconds } : null} />
+      <Metrics turns={turns} current={current} heardAfter={heardHer ? watch.seconds + (u.eot_s ?? 0) : null} />
       </>}
     </section>
   );
@@ -195,6 +198,29 @@ function Waterfall({ turn, liveWait }) {
       </div>
       <div className="wf-axis">{ticks.map((t) => <span key={t} style={{ left: pct(t) }}>{t === 0 ? "0" : `${t} s`}</span>)}</div>
     </div>
+  );
+}
+
+// The standard voice-AI numbers: this reply's (the person's part shows as soon as their turn ends), and the call's
+// median and 95th percentile over every reply so far. heardAfter: the page's own E2E while her line still plays.
+function Metrics({ turns, current, heardAfter }) {
+  const now = { ...(current?.user || {}), ...(current?.agent || {}) };
+  return (
+    <dl className="metrics" aria-label="Voice AI metrics: this reply, and the call's median and 95th percentile">
+      {METRICS.map((m) => {
+        const values = turns.map((t) => (m.user ? t.user : t.agent)?.[m.field]).filter((v) => v != null);
+        const p50 = percentile(values, 0.5);
+        return (
+          <div className="metric" key={m.key} title={`${m.abbr} · ${m.name}: ${m.what}`}>
+            <dt><abbr>{m.abbr}</abbr><span>{m.name}</span></dt>
+            <dd className="metric-now">{m.key === "e2e" && now.e2e_s == null && heardAfter != null ? `≈ ${heardAfter.toFixed(2)} s` : metricValue(m, now[m.field])}</dd>
+            <dd className="metric-call">{values.length === 0 ? "call: –"
+              : m.unit ? `call p50 ${metricValue(m, p50)}`
+              : `p50 ${metricValue(m, p50, false)} · p95 ${metricValue(m, percentile(values, 0.95))}`}</dd>
+          </div>
+        );
+      })}
+    </dl>
   );
 }
 

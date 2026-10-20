@@ -5,13 +5,13 @@ import {
   useTrackVolume,
 } from "@livekit/components-react";
 import {
-  ArrowDown, ArrowUpRight, Ban, CalendarCheck, CalendarClock, CalendarSearch, CalendarX, ChevronDown, CircleAlert,
+  ArrowDown, ArrowUpRight, Ban, Brain, CalendarCheck, CalendarClock, CalendarSearch, CalendarX, ChevronDown, CircleAlert,
   ClipboardCheck, Languages, LifeBuoy, Moon, Phone, PhoneCall, PhoneOff, Send, Sun, TriangleAlert, Undo2, Volume2,
 } from "lucide-react";
 import Calls from "./Calls";
 import Quality from "./Quality";
 import Timing, { useTurnTimings } from "./Timing";
-import { API, useLangfuse, useTheme } from "./shared";
+import { API, useLangfuse, useLlms, useTheme } from "./shared";
 import "./App.css";
 
 // "Talk to Giulia": one click = a fresh LiveKit room with the AI SDR agent in it. Built on LiveKit's own session
@@ -41,6 +41,8 @@ function describe(ev) {
   if (ev.type === "error") return { Icon: TriangleAlert, label: "Calendar problem", detail: ev.error || ev.where };
   if (ev.type === "voice_switch") return ev.available ? null
     : { Icon: Volume2, label: "Voice fell back to Deepgram", detail: "the picked voice isn't available right now" };
+  if (ev.type === "llm_switch") return { Icon: Brain, label: ev.available ? "Picked model is back" : "Model fell back to the default",
+    detail: ev.available ? ev.model : `${ev.model} failed or was too slow to start` };
   if (ev.type !== "tool_call") return null;
   if (ev.tool === "schedule_callback" && ev.error) return { Icon: TriangleAlert, label: "Callback not scheduled", detail: ev.error };
   const [Icon, label] = ACTIONS[ev.tool] || [ClipboardCheck, ev.tool];
@@ -110,12 +112,13 @@ function TalkPage() {
   const langRef = useRef("it"); // Italian for customers; English for the team's tests (she can switch mid-call)
   const appRef = useRef(""); // optional: an app for Giulia to talk about, as on a real call
   const voiceRef = useRef(""); // optional: one of the voices the server offers (GET /api/voices), for this call
+  const llmRef = useRef(""); // optional: one of the models the server offers (GET /api/llms), for this call
   const report = useClientEvents();
   useEffect(() => { document.title = "Talk to Giulia"; }, []);
   const tokenSource = useMemo(() => TokenSource.literal(async () => {
     // a fresh room every time: an agent never rejoins a room that existed before
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const r = await fetch(`${API}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nameRef.current, tz, language: langRef.current, app: appRef.current, voice: voiceRef.current || null }) });
+    const r = await fetch(`${API}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nameRef.current, tz, language: langRef.current, app: appRef.current, voice: voiceRef.current || null, llm: llmRef.current || null }) });
     if (!r.ok) throw new Error(`the server answered ${r.status}`);
     const j = await r.json();
     report.setRoom(j.room);
@@ -125,12 +128,12 @@ function TalkPage() {
   const session = useSession(tokenSource, { agentConnectTimeoutMilliseconds: JOIN_TIMEOUT_MS });
   return (
     <SessionProvider session={session}>
-      <Call session={session} nameRef={nameRef} langRef={langRef} appRef={appRef} voiceRef={voiceRef} report={report} />
+      <Call session={session} nameRef={nameRef} langRef={langRef} appRef={appRef} voiceRef={voiceRef} llmRef={llmRef} report={report} />
     </SessionProvider>
   );
 }
 
-function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
+function Call({ session, nameRef, langRef, appRef, voiceRef, llmRef, report }) {
   const agent = useAgent(session);
   const { messages } = useSessionMessages(session);
   const [theme, toggleTheme] = useTheme();
@@ -142,6 +145,10 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
   const [voicePick, setVoicePick] = useState({ it: "", en: "" }); // "" = the server's configured voice
   const [callVoice, setCallVoice] = useState(""); // the pick this call started with
   const [fellBack, setFellBack] = useState(false); // the pick wasn't available, so the fallback voice spoke
+  const models = useLlms(); // {default, llms: [{id, provider, provider_label, label, note, available, needs}]}
+  const [llmPick, setLlmPick] = useState(""); // "" = the configured model
+  const [callLlm, setCallLlm] = useState(""); // the pick this call started with
+  const [llmFellBack, setLlmFellBack] = useState(false); // the picked model failed or stalled; the default answered
   const [phase, setPhase] = useState("idle"); // idle | starting | live | ended
   const [error, setError] = useState(null);
   const [actions, setActions] = useState([]);
@@ -169,6 +176,7 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
         if (ev.type === "trace") { setTraceId(ev.trace_id || null); return; }
         if (ev.type === "language_switch" && (ev.to === "it" || ev.to === "en")) setCallLang(ev.to);
         if (ev.type === "voice_switch" && !ev.available && ev.voice === "inference") setFellBack(true);
+        if (ev.type === "llm_switch") setLlmFellBack(!ev.available);
         const row = describe(ev);
         if (row) setActions((a) => [...a, { at: new Date(), ...row }]);
       } catch (e) { /* not ours */ }
@@ -224,6 +232,9 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
     voiceRef.current = voicePick[lang] || "";
     setCallVoice(voiceRef.current);
     setFellBack(false);
+    llmRef.current = llmPick;
+    setCallLlm(llmPick);
+    setLlmFellBack(false);
     setCallLang(lang);
     report.begin();
     report.add("start_clicked", { ua: navigator.userAgent.slice(0, 120) });
@@ -256,6 +267,10 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
   // the pick speaks its own language; after a switch to the other one, the configured voice speaks
   const voiceChip = !(picked && picked.language === callLang) ? "Default voice"
     : fellBack ? "Deepgram (fallback)" : picked.label.split(" · ")[0];
+  const pickedLlm = models.llms.find((m) => m.id === callLlm);
+  const llmChip = !pickedLlm ? models.default || "Default model"
+    : llmFellBack ? `${models.default || "Default model"} (fallback)` : `${pickedLlm.label} · ${pickedLlm.provider_label}`;
+  const providers = [...new Set(models.llms.map((m) => m.provider))];
   const status = phase === "starting" ? ["connecting", "Connecting…"]
     : agent.state === "speaking" ? ["speaking", "Giulia is speaking"]
     : agent.state === "listening" ? ["listening", "Listening"]
@@ -305,6 +320,7 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
                 {phase === "live" && <Elapsed since={startedAt.current} />}
                 <span className="chip">{callLang === "en" ? "English" : "Italiano"}</span>
                 <span className="chip">{voiceChip}</span>
+                <span className="chip" title="The LLM writing her replies">{llmChip}</span>
                 {traceId && langfuse && <a className="chip chip-link" href={`${langfuse.trace_url_prefix}${traceId}`} target="_blank" rel="noreferrer" title="This call in Langfuse: opens without signing in">Trace<ArrowUpRight aria-hidden="true" /></a>}
               </div>
               <div className="control-actions">
@@ -314,7 +330,7 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
               </div>
             </>
           ) : (
-            <form className={`setup${langVoices.length ? " with-voice" : ""}`} onSubmit={(e) => { e.preventDefault(); start(); }}>
+            <form className={`setup${langVoices.length ? " with-voice" : ""}${models.llms.length ? " with-model" : ""}`} onSubmit={(e) => { e.preventDefault(); start(); }}>
               <input className="input in-name" placeholder="Your first name (optional)" aria-label="Your first name (optional)" value={name} maxLength={60} autoComplete="given-name" onChange={(e) => setName(e.target.value)} />
               <div className="segmented" role="radiogroup" aria-label="Call language">
                 {LANGS.map(([value, label]) => (
@@ -330,6 +346,24 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
                   <select className="input select" value={voicePick[lang]} onChange={(e) => setVoicePick((p) => ({ ...p, [lang]: e.target.value }))}>
                     <option value="">Default voice</option>
                     {langVoices.map((v) => <option key={v.id} value={v.id} title={v.note}>{v.label}</option>)}
+                  </select>
+                  <ChevronDown aria-hidden="true" />
+                </label>
+              )}
+              {models.llms.length > 0 && (
+                <label className="select-wrap in-model">
+                  <span className="sr-only">The model that writes Giulia's replies</span>
+                  <select className="input select" value={llmPick} onChange={(e) => setLlmPick(e.target.value)}>
+                    <option value="">{models.default ? `${models.default} (default)` : "Default model"}</option>
+                    {providers.map((provider) => {
+                      const group = models.llms.filter((m) => m.provider === provider);
+                      const needs = group.every((m) => !m.available) && group[0].needs;
+                      return (
+                        <optgroup key={provider} label={needs ? `${group[0].provider_label} · add ${needs} to enable` : group[0].provider_label}>
+                          {group.map((m) => <option key={m.id} value={m.id} disabled={!m.available} title={m.note}>{m.label} · {m.note}</option>)}
+                        </optgroup>
+                      );
+                    })}
                   </select>
                   <ChevronDown aria-hidden="true" />
                 </label>

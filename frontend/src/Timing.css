@@ -142,3 +142,32 @@
   .wf-target,
   .wf-mark { left: calc(72px + (100% - 72px) * var(--x, 0)); }
 }
+
+/* the standard voice-AI numbers: this reply's in ink, the call's median and 95th percentile under it */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin: 2px 0 0;
+  border: 1px solid var(--hairline);
+  border-radius: 12px;
+  background: var(--raised);
+}
+.metric { display: grid; gap: 1px; min-width: 0; padding: 7px 10px 8px; }
+.metric + .metric { border-left: 1px solid var(--hairline); }
+.metric dt { display: flex; align-items: baseline; gap: 6px; min-width: 0; overflow: hidden; color: var(--ink-3); font-size: 11px; white-space: nowrap; text-overflow: ellipsis; }
+.metric abbr { color: var(--ink); font-size: 11px; font-weight: 650; letter-spacing: 0.05em; text-decoration: none; }
+.metric dd { margin: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-variant-numeric: tabular-nums; }
+.metric-now { font-size: 15px; font-weight: 600; letter-spacing: -0.01em; }
+.metric-call { color: var(--ink-3); font-size: 11px; }
+
+@media (max-width: 1100px) {
+  .metrics { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .metric:nth-child(4n + 1) { border-left: 0; }
+  .metric:nth-child(n + 5) { border-top: 1px solid var(--hairline); }
+}
+@media (max-width: 600px) {
+  .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .metric:nth-child(4n + 1) { border-left: 1px solid var(--hairline); }
+  .metric:nth-child(2n + 1) { border-left: 0; }
+  .metric:nth-child(n + 3) { border-top: 1px solid var(--hairline); }
+}
