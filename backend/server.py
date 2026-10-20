@@ -282,6 +282,113 @@ def call_stats(token: str = "", hours: int = 24) -> dict:
             "versions": sorted({r.get("version") for r in reports if r.get("version")})}
 
 
+# ---- observability and grading (20 Oct): Langfuse links for every page, the Quality page's data
+@app.get("/api/observability")
+def observability() -> dict:
+    """Langfuse links (no token: a project id and a host are not secrets; a trace opens only if it was made public)."""
+    from ai_sdr.evals import langfuse
+    return {"langfuse": langfuse.links()}
+
+
+@app.get("/api/quality/rubric")
+def quality_rubric() -> dict:
+    from ai_sdr.config import settings
+    from ai_sdr.evals.grade import GRADER_VERSION
+    from ai_sdr.evals.quality import rubric
+    return rubric(settings().eval_judge_model, GRADER_VERSION)
+
+
+def _quality_reports(hours: int, channel: str) -> list[dict]:
+    from ai_sdr.evals import reports
+    rows = reports.calls(hours=max(1, min(hours, 24 * 30)), limit=500)
+    return [r for r in rows if not channel or r.get("channel") == channel]
+
+
+@app.get("/api/quality/summary")
+def quality_summary(token: str = "", hours: int = 168, channel: str = "") -> dict:
+    _require_token(token)
+    from ai_sdr.evals.quality import summary
+    return json.loads(json.dumps(summary(_quality_reports(hours, channel)), default=str))
+
+
+@app.get("/api/quality/calls")
+def quality_calls(token: str = "", hours: int = 168, channel: str = "", check: str = "", limit: int = 100) -> dict:
+    """The graded calls, newest first; check=<key> keeps the calls where that check failed."""
+    _require_token(token)
+    from ai_sdr.evals.quality import row
+    rows = [row(r) for r in _quality_reports(hours, channel)]
+    if check:
+        rows = [r for r in rows if check in r["failed"]]
+    return json.loads(json.dumps({"calls": rows[:max(1, min(limit, 300))]}, default=str))
+
+
+@app.get("/api/quality/calls/{room}")
+def quality_call(room: str, token: str = ""):
+    _require_token(token)
+    from ai_sdr.evals import reports
+    from ai_sdr.evals.quality import latest_reviews, row
+    report = reports.get(room)
+    if report is None:
+        raise HTTPException(status_code=404)
+    items = [i for i in ((report.get("livekit") or {}).get("chat_history") or {}).get("items") or []
+             if i.get("type") in ("message", "function_call", "function_call_output")]
+    return JSONResponse(json.loads(json.dumps({
+        **row(report), "eval": report.get("eval"), "reviews": latest_reviews(report),
+        "regrades": report.get("eval_regrades") or [], "summary": report.get("summary"), "items": items,
+        "close": report.get("close")}, default=str)))
+
+
+class Review(BaseModel):
+    check: str = Field(max_length=40)
+    agree: bool                                         # the grader's verdict is right
+    verdict: str | None = Field(default=None, pattern="^(pass|fail|n/a)$")   # what it should be, when it isn't
+    note: str = Field(default="", max_length=500)
+
+
+@app.post("/api/quality/calls/{room}/review")
+async def quality_review(room: str, body: Review, token: str = "") -> dict:
+    """A person marks one of the grader's verdicts right or wrong: the grader's own report card."""
+    _require_token(token)
+    import asyncio
+    from ai_sdr.evals import langfuse, reports
+    report = await asyncio.to_thread(reports.get, room)
+    checks = ((report or {}).get("eval") or {}).get("checks") or {}
+    if body.check not in checks:
+        raise HTTPException(status_code=404)
+    review = {**body.model_dump(), "judge_verdict": checks[body.check].get("verdict"),
+              "grader": report["eval"].get("grader"), "at": datetime.now(timezone.utc).isoformat()}
+    await asyncio.to_thread(reports.save_review, room, review)
+    # also on the call's Langfuse trace, so the judge's misses can be filtered there too
+    await langfuse.post([{"id": langfuse._id(room, f"review.{body.check}"), "name": f"review.{body.check}",
+                          "value": 1 if body.agree else 0, "dataType": "BOOLEAN", "comment": body.note or None,
+                          **({"traceId": report["trace_id"]} if report.get("trace_id") else {"sessionId": room})}])
+    return {"saved": True, "review": review}
+
+
+@app.post("/api/quality/calls/{room}/regrade")
+async def quality_regrade(room: str, token: str = "") -> dict:
+    """Grade the call again with the same judge: checks whose verdict flips are ones the judge can't decide
+    consistently (the page's consistency figure)."""
+    _require_token(token)
+    import asyncio
+    from ai_sdr.evals import reports
+    from ai_sdr.evals.grade import grade
+    from ai_sdr.evals.quality import compare
+    from ai_sdr.evals.rubric import ending_of
+    from ai_sdr.evals.watch import items_of, language_of
+    report = await asyncio.to_thread(reports.get, room)
+    original = ((report or {}).get("eval") or {}).get("checks")
+    if not original:
+        raise HTTPException(status_code=404)
+    again = await grade(items_of(report), language_of(report), ending=ending_of(report.get("close")))
+    entry = {"at": again["graded_at"], "grader": again["grader"], "judge": again["judge"], "score": again["score"],
+             "took_s": again.get("took_s"),
+             "checks": {k: {"verdict": c["verdict"], "reason": c["reason"]} for k, c in again["checks"].items()}}
+    await asyncio.to_thread(reports.save_regrade, room, entry)
+    return {"original_score": report["eval"].get("score"), "score": again["score"],
+            **compare(original, again["checks"]), "checks": entry["checks"]}
+
+
 @app.get("/api/agent-log")
 def agent_log(token: str = "", lines: int = 200):
     """Last lines of the voice worker's log (reads only the end of the file)."""

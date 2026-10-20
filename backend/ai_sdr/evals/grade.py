@@ -6,6 +6,7 @@ gateway): a judge as weak as the agent misses the agent's own blind spots. It wr
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 from typing import Literal
 
@@ -75,11 +76,12 @@ def score(checks: dict[str, dict]) -> float | None:
 
 async def grade(items: list[dict], language: str, *, extra: str = "", ending: str | None = None) -> dict:
     """The grade stored in the call report (and pushed to Langfuse as scores). ending: how the call ended."""
+    t0 = time.monotonic()
     j = await judge(items, language, extra=extra, ending=ending)
     checks = {c.key: getattr(j, c.key).model_dump() for c in CHECKS}
     return {
         "grader": GRADER_VERSION, "judge": judge_model(),
-        "graded_at": datetime.now(timezone.utc).isoformat(),
+        "graded_at": datetime.now(timezone.utc).isoformat(), "took_s": round(time.monotonic() - t0, 1),
         "score": score(checks),
         "must_failed": [k for k in MUST if checks[k]["verdict"] == "fail"],
         "failed": [k for k, c in checks.items() if c["verdict"] == "fail"],

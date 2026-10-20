@@ -75,6 +75,62 @@ def recent(hours: float = 168, limit: int = 200) -> list[dict]:
     return out[:limit]
 
 
+# what the Quality page needs from each report (not the logs, events or transport samples)
+LIST_FIELDS = ("room", "channel", "started_at", "ended_at", "duration_s", "version", "agent_name", "close", "summary",
+               "extra", "eval", "eval_reviews", "eval_regrades", "trace_id")
+
+
+def calls(hours: float = 168, limit: int = 300) -> list[dict]:
+    """Calls from the last `hours`, newest first, graded or not, with only LIST_FIELDS."""
+    since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+    sink, folder = _sink()
+    if sink == "mongodb":
+        client, coll = _mongo()
+        try:
+            return list(coll.find({"started_at": {"$gte": since}}, {"_id": 0, **{f: 1 for f in LIST_FIELDS}})
+                        .sort("started_at", -1).limit(limit))
+        finally:
+            client.close()
+    out = []
+    if folder.exists():
+        for path in folder.glob("*.json"):
+            try:
+                report = json.loads(path.read_text())
+            except (OSError, ValueError):
+                continue
+            if (report.get("started_at") or "") >= since:
+                out.append({f: report.get(f) for f in LIST_FIELDS if f in report})
+    out.sort(key=lambda r: r.get("started_at") or "", reverse=True)
+    return out[:limit]
+
+
+def _push(room: str, field: str, value: dict) -> bool:
+    """Append to a list field of one report (reviews and re-grades). False if the call isn't there."""
+    sink, folder = _sink()
+    value = json.loads(json.dumps(value, default=str))
+    if sink == "mongodb":
+        client, coll = _mongo()
+        try:
+            return coll.update_one({"room": room}, {"$push": {field: value}}).matched_count == 1
+        finally:
+            client.close()
+    path = folder / f"{room}.json"
+    if not path.exists():
+        return False
+    report = json.loads(path.read_text())
+    report.setdefault(field, []).append(value)
+    path.write_text(json.dumps(report, ensure_ascii=False, indent=1, default=str))
+    return True
+
+
+def save_review(room: str, review: dict) -> bool:
+    return _push(room, "eval_reviews", review)
+
+
+def save_regrade(room: str, regrade: dict) -> bool:
+    return _push(room, "eval_regrades", regrade)
+
+
 def get(room: str) -> dict | None:
     sink, folder = _sink()
     if sink == "mongodb":
