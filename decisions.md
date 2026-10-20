@@ -46,5 +46,15 @@ PENDING · pod .env: SONIOX_API_KEY (and drop STT_PROVIDER or set STT_CHAIN=soni
 2026-10-20 · claim "the call with our team is free" (claims_*.md + meeting pitch, it/en) · Prateek signed off
 2026-10-20 · repo: github.com/prateek-emergent/ai-sdr (private); commit 1 = pod snapshot b7baff2, changes in revertable commits · Prateek
 2026-10-20 · bump backend/ai_sdr/VERSION (= last code commit) on every push · pod supervisor restarts the worker only when VERSION or .env changes; /health shows it
+2026-10-20 · pod .env already overrides TTS_MIN_SENTENCE_LEN=6, ENDPOINTING_MAX_S=1.2, PREEMPTIVE_MAX_SPEECH_S=60 · .env beats code defaults: on the pod sentence length stays 6, not 8
+2026-10-20 · pod .env: no Italian ElevenLabs voice, STT_PROVIDER=deepgram, no SONIOX/HUBSPOT keys · found when pulling .env; fixes listed in chat
 PENDING · legal: dial Italian numbers only if customer-provided; check Registro Pubblico delle Opposizioni · GDPR / Italian telemarketing rules
 PENDING · rotate HubSpot private-app token · pasted in chat
+2026-10-20 · Talk page redesign: monochrome frosted glass, light + dark (system default; toggle remembered per browser) · Prateek's brief, built with the Impeccable skill
+2026-10-20 · Talk page only, conversation first (transcript main, actions rail, slim status bar); /calls untouched, keeps latency colours · question round answers
+2026-10-20 · glass sits over a "voice light": Giulia's disc (left) and yours (right) swell with live audio level · gives the blur a job; shows who's talking
+2026-10-20 · Talk page uses the system UI font, not Inter · Impeccable detector flags Inter as overused; system stack fits working screens
+2026-10-20 · "What Giulia did" also lists language switches, support issues, calendar errors; callback failures no longer show as booked · backend already sent them
+2026-10-20 · PRODUCT.md, DESIGN.md, .impeccable/ (surface brief, design.json) in repo; .impeccable/review/ screenshots gitignored · design record for later UI work; PNGs not app code
+2026-10-20 · voice light level = clamp((volume - 0.08) × 3) (App.js VoiceField) · mic never reads 0 (room noise) · UNPROVEN, tune if a disc sits swollen in silence or barely moves
+2026-10-20 · Impeccable concept roll skipped (FORM: direction pinned) · Prateek pinned palette, material, layout; reviewer's one open item · PENDING: Prateek accepts or asks for a roll

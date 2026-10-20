@@ -90,3 +90,6 @@ credentials.json
 *.key
 .credentials
 demo_calls/
+
+# Impeccable review screenshots (local evidence, not app code)
+.impeccable/review/
