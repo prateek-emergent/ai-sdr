@@ -77,6 +77,7 @@ class VoiceConfig:
     soniox_model: str
     soniox_max_endpoint_delay_ms: int   # the plugin emits a final transcript only at Soniox's endpoint (see load())
     stt_keyterms: tuple[str, ...]       # words the STT should expect (brand names it otherwise mishears)
+    deepgram_language: str              # multi (Italian + English in one stream) | call (the call's starting language)
 
     # voice: primary, then fallbacks in order, one voice per language
     tts_chain: tuple[str, ...]          # e.g. ("elevenlabs", "deepgram")
@@ -128,6 +129,28 @@ class VoiceConfig:
     report_sink: str = field(default="file")
     report_dir: str = field(default="")
 
+    # how human the call feels (voice/texture.py)
+    endpointing_mode: str = field(default="fixed")     # fixed | dynamic (learns each caller's own pause length)
+    # below this end-of-turn probability the turn detector waits ENDPOINTING_MAX_S. Empty = LiveKit's per-language
+    # defaults. 20 Oct scripted calls: short complete Italian answers ("Sì, sì. Dimmi pure.", "Giovedì mattina, verso
+    # le dieci.") waited the full 1.2 s in every run; a lower Italian value (e.g. it:0.15) is the knob to try.
+    turn_unlikely_threshold: dict[str, float] = field(default_factory=dict)
+    noise_cancellation: str = field(default="auto")    # auto (Krisp BVC / BVCTelephony when installed) | off
+    # Levels measured 20 Oct: the office clip is -55 dBFS and typing -39 dBFS at volume 1, Giulia's voice -28 dBFS
+    # while speaking. 0.8 puts the room tone ~29 dB under her voice (felt, not heard); typing at 0.5 sits ~18 dB under.
+    ambience: str = field(default="office")            # office | off: quiet room tone under the whole call
+    ambience_volume: float = field(default=0.8)
+    typing_sound: bool = field(default=True)           # keyboard typing while a calendar lookup runs
+    typing_volume: float = field(default=0.5)
+    # reopen the LLM connection when the caller starts talking. Off: on the laptop it made replies slower (first
+    # token p50 1.61 s on vs 1.04 s off, same scripted call), because the warm-up competes with the early (preemptive)
+    # LLM request for a connection. Worth re-testing on a server close to the LLM proxy.
+    warm_llm: bool = field(default=False)
+    # LiveKit expressive mode: the LLM adds emotion/pace/laugh tags that the voice performs. Only voices that can
+    # perform them use it (LiveKit Inference TTS such as inworld/inworld-tts-2 or cartesia/sonic-3.6, alone in the
+    # chain); LiveKit switches it off by itself for Deepgram, ElevenLabs and fallback chains.
+    tts_expressive: bool = field(default=False)
+
     def describe(self) -> dict:
         """Safe summary for logs and reports: no secrets."""
         return {
@@ -137,7 +160,7 @@ class VoiceConfig:
             "stt": " → ".join(f"{n}:{self.soniox_model if n == 'soniox' else self.stt_model}" for n in self.stt_chain),
             "stt_chain": list(self.stt_chain), "stt_model": self.stt_model, "soniox_model": self.soniox_model,
             "soniox_max_endpoint_delay_ms": self.soniox_max_endpoint_delay_ms,
-            "stt_keyterms": list(self.stt_keyterms),
+            "stt_keyterms": list(self.stt_keyterms), "deepgram_language": self.deepgram_language,
             "tts_chain": list(self.tts_chain), "elevenlabs_model": self.elevenlabs_model,
             "elevenlabs_voice_languages": sorted(self.elevenlabs_voice_ids),
             "deepgram_voices": dict(self.deepgram_voices),
@@ -156,6 +179,10 @@ class VoiceConfig:
             "aec_warmup": self.aec_warmup, "user_away_timeout": self.user_away_timeout,
             "vad_min_silence": self.vad_min_silence, "filler_delay": self.filler_delay,
             "max_sessions": self.max_sessions, "report_sink": self.report_sink,
+            "endpointing_mode": self.endpointing_mode, "noise_cancellation": self.noise_cancellation,
+            "turn_unlikely_threshold": dict(self.turn_unlikely_threshold),
+            "ambience": self.ambience if self.ambience == "off" else f"{self.ambience}@{self.ambience_volume}",
+            "typing_sound": self.typing_sound, "warm_llm": self.warm_llm, "tts_expressive": self.tts_expressive,
         }
 
 
@@ -228,6 +255,10 @@ def load() -> VoiceConfig:
         soniox_max_endpoint_delay_ms=_int("SONIOX_MAX_ENDPOINT_DELAY_MS", 500),
         # 17 Oct real call: "Emergent" heard as "Emojin" and "I'm urgent" (the 16 Oct setup misheard it too)
         stt_keyterms=tuple(k.strip() for k in (_env("STT_KEYTERMS") or "Emergent").split(",") if k.strip()),
+        # 20 Oct: "call" (the call's language; a language switch gives the new agent its own Deepgram stream).
+        # "multi" hears both in one stream, but its transcripts came back unpunctuated ("Dimmi pure", fragments), the
+        # turn detector reads punctuation, and 3 of 5 turns waited the full ENDPOINTING_MAX_S in a scripted call.
+        deepgram_language=_env("DEEPGRAM_LANGUAGE", "call"),
         tts_chain=tts_chain,
         elevenlabs_api_key=_env("ELEVENLABS_API_KEY") or _env("ELEVEN_API_KEY"),
         # one voice per language; ELEVENLABS_VOICE_ID alone gives both languages the same (multilingual) voice
@@ -267,6 +298,10 @@ def load() -> VoiceConfig:
         # and real words interrupt instead of resuming)
         false_interruption_timeout=_float("FALSE_INTERRUPTION_TIMEOUT_S", 1.0),
         preemptive_generation=_env("PREEMPTIVE_GENERATION", "1") == "1",
+        # On (LiveKit's preemptive TTS): the voice starts on the draft reply. 20 Oct, same scripted Italian call: on the
+        # preview pod (close to Deepgram) first audio 0.07 s and e2e p50 1.20 s with it on. A cancelled draft closes its
+        # voice websocket, so the next reply reconnects: nearly free on the pod, 0.84 s per reconnect from a laptop in
+        # India, where PREEMPTIVE_TTS=0 is faster (e2e 2.61 -> 1.79 s). Off only for runs far from the providers.
         preemptive_tts=_env("PREEMPTIVE_TTS", "1") == "1",
         # LiveKit default 10 s: after a longer answer the reply is NOT prepared during the end-of-turn wait (19 Oct
         # prod: the 2.84 s turn followed 19.9 s of speech)
@@ -294,9 +329,30 @@ def load() -> VoiceConfig:
         memory_warn_mb=_float("AGENT_MEMORY_WARN_MB", 1500),
         report_sink=sink,
         report_dir=_env("REPORT_DIR", str(Path(__file__).resolve().parents[3] / "call_reports")),
+        endpointing_mode=_env("ENDPOINTING_MODE", "fixed"),
+        turn_unlikely_threshold=_thresholds(_env("TURN_UNLIKELY_THRESHOLD", "")),
+        noise_cancellation=_env("NOISE_CANCELLATION", "auto"),
+        ambience=_env("BACKGROUND_AMBIENCE", "office"),
+        ambience_volume=_float("AMBIENCE_VOLUME", 0.8),
+        typing_sound=_env("TYPING_SOUND", "1") == "1",
+        typing_volume=_float("TYPING_VOLUME", 0.5),
+        warm_llm=_env("LLM_WARM_ON_SPEECH", "0") == "1",
+        tts_expressive=_env("TTS_EXPRESSIVE", "0") == "1",
     )
     validate(cfg)
     return cfg
+
+
+def _thresholds(raw: str) -> dict[str, float]:
+    """TURN_UNLIKELY_THRESHOLD="it:0.15,en:0.3" (language:probability pairs)."""
+    out: dict[str, float] = {}
+    for part in (p.strip() for p in raw.split(",") if p.strip()):
+        lang, _, value = part.partition(":")
+        try:
+            out[lang.strip()] = float(value)
+        except ValueError:
+            raise ConfigError(f"TURN_UNLIKELY_THRESHOLD: {part!r} is not language:number (e.g. it:0.15)") from None
+    return out
 
 
 def _default_tts_chain() -> str:
@@ -374,5 +430,15 @@ def validate(cfg: VoiceConfig) -> None:
         problems.append(f"REPORT_SINK must be file or mongodb, not {cfg.report_sink!r}")
     if cfg.report_sink == "mongodb" and not _env("MONGO_URL"):
         problems.append("REPORT_SINK=mongodb needs MONGO_URL")
+    if cfg.deepgram_language not in ("multi", "call"):
+        problems.append(f"DEEPGRAM_LANGUAGE must be multi or call, not {cfg.deepgram_language!r}")
+    if cfg.endpointing_mode not in ("fixed", "dynamic"):
+        problems.append(f"ENDPOINTING_MODE must be fixed or dynamic, not {cfg.endpointing_mode!r}")
+    if cfg.noise_cancellation not in ("auto", "off"):
+        problems.append(f"NOISE_CANCELLATION must be auto or off, not {cfg.noise_cancellation!r}")
+    if cfg.ambience not in ("office", "off"):
+        problems.append(f"BACKGROUND_AMBIENCE must be office or off, not {cfg.ambience!r}")
+    if not (0 <= cfg.ambience_volume <= 1 and 0 <= cfg.typing_volume <= 1):
+        problems.append("AMBIENCE_VOLUME and TYPING_VOLUME must be between 0 and 1")
     if problems:
         raise ConfigError("voice config is invalid:\n  - " + "\n  - ".join(problems))

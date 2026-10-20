@@ -47,6 +47,7 @@ class CallController:
         self.agent_state = "initializing"
         self._llm_failures = 0
         self._recovery_pending = False
+        self.texture = None   # the call's background audio (voice/texture.py), set once the room is connected
 
     @property
     def closing(self) -> bool:

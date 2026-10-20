@@ -175,6 +175,14 @@ def test_stt_chain_is_bilingual():
     assert build_stt(cfg, "en")._stt_instances[0]._params.language_hints == ["en", "it"]
 
 
+def test_deepgram_language():
+    """20 Oct: Deepgram listens in the call's language (a switch gives the twin its own stream); "multi" on request."""
+    cfg = dataclasses.replace(voice_config.load(), stt_chain=("deepgram",))
+    assert cfg.deepgram_language == "call"
+    assert build_stt(cfg, "it")._opts.language == "it" and build_stt(cfg, "en")._opts.language == "en"
+    assert build_stt(dataclasses.replace(cfg, deepgram_language="multi"), "it")._opts.language == "multi"
+
+
 def test_voices_built_once_per_language():
     built = []
     voices = Voices(voice_config.load(), on_build=lambda lang, chain, voice: built.append(lang))

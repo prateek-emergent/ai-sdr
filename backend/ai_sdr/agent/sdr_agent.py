@@ -10,6 +10,7 @@ pronunciation map is applied before the voice."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterable, Awaitable, Callable
 from datetime import datetime
@@ -17,7 +18,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from livekit import rtc
-from livekit.agents import Agent, ModelSettings, RunContext, function_tool, tts as lk_tts
+from livekit.agents import Agent, ModelSettings, RunContext, function_tool, stt as lk_stt, tts as lk_tts
 from livekit.agents.llm import StopResponse, ToolError
 
 from ..voice.lifecycle import CallController
@@ -57,14 +58,18 @@ class SDRAgent(Agent):
                  language: str = "it", instructions_for: Callable[[str], str] | None = None,
                  voices: Callable[[str], lk_tts.TTS] | None = None,
                  pronunciations: dict[str, dict[str, str]] | None = None, filler_delay: float = 0.8,
-                 handoff: bool = False, chat_ctx=None, tts: lk_tts.TTS | None = None):
+                 handoff: bool = False, chat_ctx=None, tts: lk_tts.TTS | None = None,
+                 hearing: Callable[[str], lk_stt.STT] | None = None, stt: lk_stt.STT | None = None):
         """instructions_for(language) and voices(language) make the twin for switch_language (without them the
-        call stays in one language). handoff: this agent took over mid-call from its twin."""
+        call stays in one language); hearing(language) gives the twin speech-to-text in its language. handoff: this
+        agent took over mid-call from its twin."""
         extra = {}
         if chat_ctx is not None:
             extra["chat_ctx"] = chat_ctx
         if tts is not None:   # NOT None-to-disable: only an override when given; otherwise the session's voice
             extra["tts"] = tts
+        if stt is not None:   # same: the twin hears in its own language, the first agent uses the session's
+            extra["stt"] = stt
         super().__init__(instructions=instructions, **extra)
         self.actions = actions
         self.recorder = recorder
@@ -72,6 +77,7 @@ class SDRAgent(Agent):
         self.language = language
         self._instructions_for = instructions_for
         self._voices = voices
+        self._hearing = hearing
         self._pronunciation_tables = pronunciations or {}
         self._say_as = Pronunciations(self._pronunciation_tables.get(language))
         self._filler_delay = filler_delay
@@ -99,8 +105,10 @@ class SDRAgent(Agent):
     async def _with_filler(self, context: RunContext, filler: str, coro: Awaitable):
         """A slow calendar step (up to 8 s per request, 2-3 requests per booking): if she has been silent for
         filler_delay seconds while it runs, say one short line (LiveKit's RunContext.with_filler: it waits for the
-        session to be idle, so it never talks over a "let me check" the model already said)."""
-        async with context.with_filler(line(filler, self.c.language), delay=self._filler_delay):
+        session to be idle, so it never talks over a "let me check" the model already said). Keyboard typing plays
+        while it runs, as when a person looks something up (voice/texture.py)."""
+        typing = self.c.texture.typing() if self.c.texture else contextlib.nullcontext()
+        async with typing, context.with_filler(line(filler, self.c.language), delay=self._filler_delay):
             return await self._bounded(coro)
 
     @function_tool()
@@ -237,10 +245,13 @@ class SDRAgent(Agent):
         await self.actions._event("language_switch", {"to": language})
         # returning an agent hands the call to it (generation.make_tool_output); a bare agent means the old one says
         # nothing more and the twin speaks first, in its own language and voice (on_enter)
+        # the twin also hears in its language: Deepgram listens in one language at a time (20 Oct: "multi" lost the
+        # punctuation the turn detector reads, so turns waited the full ENDPOINTING_MAX_S)
         return SDRAgent(self.actions, self._instructions_for(language), self.recorder, self.c, language=language,
-                        instructions_for=self._instructions_for, voices=self._voices,
+                        instructions_for=self._instructions_for, voices=self._voices, hearing=self._hearing,
                         pronunciations=self._pronunciation_tables, filler_delay=self._filler_delay, handoff=True,
-                        chat_ctx=self.chat_ctx.copy(exclude_instructions=True), tts=self._voices(language))
+                        chat_ctx=self.chat_ctx.copy(exclude_instructions=True), tts=self._voices(language),
+                        stt=self._hearing(language) if self._hearing else None)
 
     @function_tool()
     async def stop_recording(self, context: RunContext) -> str:

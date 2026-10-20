@@ -14,6 +14,7 @@ from livekit.plugins import deepgram, elevenlabs, soniox
 from livekit.plugins import openai as lk_openai
 
 from ..llm import proxy_url
+from .catalog import CatalogVoice
 from .config import DEEPGRAM_VOICES, LLMRoute, VoiceConfig
 
 # what Soniox is told about the conversation (context improves names, product words and numbers)
@@ -30,13 +31,16 @@ def _one_stt(cfg: VoiceConfig, name: str, language: str) -> stt.STT:
         return soniox.STT(api_key=cfg.soniox_api_key, params=soniox.STTOptions(
             model=cfg.soniox_model, language_hints=hints, context=context,
             max_endpoint_delay_ms=cfg.soniox_max_endpoint_delay_ms))
+    # Deepgram listens in the call's language (DEEPGRAM_LANGUAGE=call; a language switch gives the new agent its own
+    # stream, sdr_agent.switch_language). "multi" hears Italian and English in one stream (keyterms work with it too)
+    # but punctuates poorly, which slows the turn detector (voice/config.py).
+    dg_language = "multi" if cfg.deepgram_language == "multi" else language
     if name == "livekit":
-        return inference.STT(model=f"deepgram/{cfg.stt_model}", language=language)
-    # Deepgram listens in the language the call started in (keyterm prompting is monolingual nova-3), so it is the
-    # fallback, not the bilingual front line. Keyterms go on the connection URL when it is opened: one Deepgram
-    # websocket for the whole call. (Session-level stt_context_options would update a live stream, which reconnects it.)
+        return inference.STT(model=f"deepgram/{cfg.stt_model}", language=dg_language)
+    # Keyterms go on the connection URL when it is opened: one Deepgram websocket for the whole call.
+    # (Session-level stt_context_options would update a live stream, which reconnects it.)
     keyterm = list(cfg.stt_keyterms) if cfg.stt_keyterms and cfg.stt_model.startswith("nova-3") else NOT_GIVEN
-    return deepgram.STT(model=cfg.stt_model, language=language, api_key=cfg.deepgram_api_key, keyterm=keyterm)
+    return deepgram.STT(model=cfg.stt_model, language=dg_language, api_key=cfg.deepgram_api_key, keyterm=keyterm)
 
 
 def build_stt(cfg: VoiceConfig, language: str) -> stt.STT:
@@ -59,6 +63,17 @@ def _one_tts(cfg: VoiceConfig, name: str, language: str) -> tts.TTS:
         return deepgram.TTS(model=cfg.deepgram_voices.get(language, DEEPGRAM_VOICES["en"]),
                             api_key=cfg.deepgram_api_key)
     return inference.TTS(model=cfg.livekit_tts_model, voice=cfg.livekit_tts_voice, language=language)
+
+
+def catalog_tts(cfg: VoiceConfig, choice: CatalogVoice, language: str) -> tts.TTS:
+    """A voice picked on the Talk page (voice/catalog.py). LiveKit Inference voices get Deepgram behind them: the
+    project's inference credit can run out, and then the call carries on in Deepgram's voice."""
+    if choice.provider == "deepgram":
+        return deepgram.TTS(model=choice.model, api_key=cfg.deepgram_api_key)
+    picked = inference.TTS(model=choice.model, voice=choice.voice, language=language)
+    if not cfg.deepgram_api_key:
+        return picked
+    return tts.FallbackAdapter([picked, _one_tts(cfg, "deepgram", language)], max_retry_per_tts=0)
 
 
 ELEVENLABS_MIN_CREDITS = 2000   # below this, calls start on the fallback voice instead of failing mid-call
@@ -112,20 +127,29 @@ def build_tts(cfg: VoiceConfig, chain: tuple[str, ...] | None = None, language: 
 
 class Voices:
     """The voice for each language of one call, built on first use and kept, so switching back and forth between
-    Italian and English reuses the same connections. on_build sees every new voice (telemetry listens to it)."""
+    Italian and English reuses the same connections. on_build sees every new voice (telemetry listens to it).
+    choice: a voice picked on the Talk page; it speaks its own language, the other language keeps the configured
+    voice."""
 
     def __init__(self, cfg: VoiceConfig, requested: list[str] | None = None, elevenlabs_left: int | None = None,
-                 on_build: Callable[[str, tuple[str, ...], tts.TTS], None] | None = None):
+                 on_build: Callable[[str, tuple[str, ...], tts.TTS], None] | None = None,
+                 choice: CatalogVoice | None = None):
         self.cfg, self.requested, self.elevenlabs_left, self.on_build = cfg, requested, elevenlabs_left, on_build
+        self.choice = choice
         self._built: dict[str, tts.TTS] = {}
 
     def chain(self, language: str) -> tuple[str, ...]:
+        if self.choice is not None and self.choice.language == language:
+            return (f"catalog:{self.choice.id}",) + (("deepgram",) if self.choice.provider != "deepgram" else ())
         return tts_chain_for(self.cfg, self.requested, self.elevenlabs_left, language)
 
     def get(self, language: str) -> tts.TTS:
         if language not in self._built:
             chain = self.chain(language)
-            voice = build_tts(self.cfg, chain, language)
+            if self.choice is not None and self.choice.language == language:
+                voice = catalog_tts(self.cfg, self.choice, language)
+            else:
+                voice = build_tts(self.cfg, chain, language)
             self._built[language] = voice
             if self.on_build is not None:
                 self.on_build(language, chain, voice)

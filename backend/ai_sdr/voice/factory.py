@@ -23,7 +23,9 @@ def build_session(cfg: VoiceConfig, vad: lk_vad.VAD, *, language: str, tts: lk_t
     the new agent brings its own voice, while speech-to-text, turn detection and the LLM stay with the session."""
     # A new turn detector for every call: when it falls back to the local model (cloud error, or one prediction
     # slower than 1 s) it changes its own state, and a shared one would carry that into every later call.
-    td = inference.TurnDetector(version=cfg.turn_detector_version)
+    td = inference.TurnDetector(version=cfg.turn_detector_version,
+                                **({"unlikely_threshold": cfg.turn_unlikely_threshold}
+                                   if cfg.turn_unlikely_threshold else {}))
     session = AgentSession(
         stt=build_stt(cfg, language),
         llm=build_llm(cfg),
@@ -31,7 +33,8 @@ def build_session(cfg: VoiceConfig, vad: lk_vad.VAD, *, language: str, tts: lk_t
         vad=vad,
         turn_handling={
             "turn_detection": td,
-            "endpointing": {"mode": "fixed", "min_delay": cfg.endpointing_min, "max_delay": cfg.endpointing_max},
+            "endpointing": {"mode": cfg.endpointing_mode, "min_delay": cfg.endpointing_min,
+                            "max_delay": cfg.endpointing_max},
             "interruption": {"enabled": True, "mode": cfg.interruption_mode,
                              "min_duration": cfg.interruption_min_duration,
                              "min_words": cfg.interruption_min_words,
@@ -45,6 +48,7 @@ def build_session(cfg: VoiceConfig, vad: lk_vad.VAD, *, language: str, tts: lk_t
         # callee's words for the first 3 s of the opener). Passing any value, even None, overrides that.
         **({"aec_warmup_duration": cfg.aec_warmup} if channel == "web" else {}),
         user_away_timeout=cfg.user_away_timeout,
+        expressive=cfg.tts_expressive,
         conn_options=SessionConnectOptions(
             stt_conn_options=APIConnectOptions(max_retry=2, retry_interval=0.5, timeout=cfg.stt_timeout),
             tts_conn_options=APIConnectOptions(max_retry=1, retry_interval=0.3, timeout=cfg.tts_timeout),

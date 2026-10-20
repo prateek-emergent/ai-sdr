@@ -30,6 +30,8 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from livekit import api
 from pydantic import BaseModel, Field
 
+from ai_sdr.voice.catalog import BY_ID as VOICE_CATALOG, public as voice_catalog
+
 ROOT = Path(__file__).parent
 # Settings the platform itself provides (on the deployed app: Emergent's Secrets panel) are in the environment before
 # .env is read; remember their NAMES so the voice supervisor never lets the deployed app's frozen .env copy override
@@ -152,10 +154,18 @@ class SessionStart(BaseModel):
     # Giulia to talk about, as on a real call where the customer card names what they built
     language: str | None = Field(None, max_length=5)
     app: str | None = Field(None, max_length=60)
+    # a voice the page offers (ai_sdr/voice/catalog.py), to hear this test call in it
+    voice: str | None = Field(None, max_length=60)
     # test calls only (the probe): pick the voice chain, e.g. ["deepgram"] so automated runs don't spend
     # ElevenLabs credits. Ignored without the debug token.
     tts_chain: list[str] | None = Field(None, max_length=3)
     test_token: str | None = Field(None, max_length=100)
+
+
+@app.get("/api/voices")
+def voices() -> dict:
+    """The voices the Talk page offers, five per language (ai_sdr/voice/catalog.py)."""
+    return {"voices": voice_catalog()}
 
 
 @app.post("/api/session")
@@ -170,6 +180,8 @@ def session_start(body: SessionStart, background: BackgroundTasks) -> dict:
         meta["language"] = body.language
     if body.app and body.app.strip():
         meta["app"] = body.app.strip()
+    if body.voice in VOICE_CATALOG:
+        meta["voice"] = body.voice
     expected = os.environ.get("DEBUG_TOKEN", "")
     if body.tts_chain and expected and secrets.compare_digest(body.test_token or "", expected):
         meta["tts_chain"] = [t for t in body.tts_chain if t in ("deepgram", "elevenlabs", "livekit")]

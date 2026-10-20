@@ -5,8 +5,8 @@ import {
   useTrackVolume,
 } from "@livekit/components-react";
 import {
-  ArrowDown, ArrowUpRight, Ban, CalendarCheck, CalendarClock, CalendarSearch, CalendarX, CircleAlert, ClipboardCheck,
-  Languages, LifeBuoy, Moon, Phone, PhoneCall, PhoneOff, Send, Sun, TriangleAlert, Undo2, Volume2,
+  ArrowDown, ArrowUpRight, Ban, CalendarCheck, CalendarClock, CalendarSearch, CalendarX, ChevronDown, CircleAlert,
+  ClipboardCheck, Languages, LifeBuoy, Moon, Phone, PhoneCall, PhoneOff, Send, Sun, TriangleAlert, Undo2, Volume2,
 } from "lucide-react";
 import Calls from "./Calls";
 import "./App.css";
@@ -38,6 +38,8 @@ function describe(ev) {
   if (ev.type === "language_switch") return { Icon: Languages, label: ev.to === "en" ? "Switched to English" : "Switched to Italian" };
   if (ev.type === "support_issue") return { Icon: LifeBuoy, label: "Support issue logged", detail: [ev.kind, ev.summary].filter(Boolean).join(" · ") };
   if (ev.type === "error") return { Icon: TriangleAlert, label: "Calendar problem", detail: ev.error || ev.where };
+  if (ev.type === "voice_switch") return ev.available ? null
+    : { Icon: Volume2, label: "Voice fell back to Deepgram", detail: "the picked voice isn't available right now" };
   if (ev.type !== "tool_call") return null;
   if (ev.tool === "schedule_callback" && ev.error) return { Icon: TriangleAlert, label: "Callback not scheduled", detail: ev.error };
   const [Icon, label] = ACTIONS[ev.tool] || [ClipboardCheck, ev.tool];
@@ -127,12 +129,13 @@ function TalkPage() {
   const nameRef = useRef("");
   const langRef = useRef("it"); // Italian for customers; English for the team's tests (she can switch mid-call)
   const appRef = useRef(""); // optional: an app for Giulia to talk about, as on a real call
+  const voiceRef = useRef(""); // optional: one of the voices the server offers (GET /api/voices), for this call
   const report = useClientEvents();
   useEffect(() => { document.title = "Talk to Giulia"; }, []);
   const tokenSource = useMemo(() => TokenSource.literal(async () => {
     // a fresh room every time: an agent never rejoins a room that existed before
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    const r = await fetch(`${API}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nameRef.current, tz, language: langRef.current, app: appRef.current }) });
+    const r = await fetch(`${API}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: nameRef.current, tz, language: langRef.current, app: appRef.current, voice: voiceRef.current || null }) });
     if (!r.ok) throw new Error(`the server answered ${r.status}`);
     const j = await r.json();
     report.setRoom(j.room);
@@ -142,12 +145,12 @@ function TalkPage() {
   const session = useSession(tokenSource, { agentConnectTimeoutMilliseconds: JOIN_TIMEOUT_MS });
   return (
     <SessionProvider session={session}>
-      <Call session={session} nameRef={nameRef} langRef={langRef} appRef={appRef} report={report} />
+      <Call session={session} nameRef={nameRef} langRef={langRef} appRef={appRef} voiceRef={voiceRef} report={report} />
     </SessionProvider>
   );
 }
 
-function Call({ session, nameRef, langRef, appRef, report }) {
+function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
   const agent = useAgent(session);
   const { messages } = useSessionMessages(session);
   const [theme, toggleTheme] = useTheme();
@@ -155,6 +158,10 @@ function Call({ session, nameRef, langRef, appRef, report }) {
   const [lang, setLang] = useState("it");
   const [callLang, setCallLang] = useState("it"); // follows her mid-call switches
   const [app, setApp] = useState("");
+  const [voices, setVoices] = useState([]); // [{id, language, label, note}], five per language
+  const [voicePick, setVoicePick] = useState({ it: "", en: "" }); // "" = the server's configured voice
+  const [callVoice, setCallVoice] = useState(""); // the pick this call started with
+  const [fellBack, setFellBack] = useState(false); // the pick wasn't available, so the fallback voice spoke
   const [phase, setPhase] = useState("idle"); // idle | starting | live | ended
   const [error, setError] = useState(null);
   const [actions, setActions] = useState([]);
@@ -164,6 +171,11 @@ function Call({ session, nameRef, langRef, appRef, report }) {
   const room = session.room;
   const { mergedProps: audioProps, canPlayAudio } = useStartAudio({ room, props: {} });
 
+  // the voices to choose from (20 Oct: the team compares the most human-sounding voices before a call)
+  useEffect(() => {
+    fetch(`${API}/api/voices`).then((r) => (r.ok ? r.json() : {})).then((j) => setVoices(j.voices || [])).catch(() => {});
+  }, []);
+
   // room-level events: what Giulia did (data topic sdr.events), audio playback, connection problems
   useEffect(() => {
     const onData = (payload, _p, _k, topic) => {
@@ -171,6 +183,7 @@ function Call({ session, nameRef, langRef, appRef, report }) {
       try {
         const ev = JSON.parse(new TextDecoder().decode(payload));
         if (ev.type === "language_switch" && (ev.to === "it" || ev.to === "en")) setCallLang(ev.to);
+        if (ev.type === "voice_switch" && !ev.available && ev.voice === "inference") setFellBack(true);
         const row = describe(ev);
         if (row) setActions((a) => [...a, { at: new Date(), ...row }]);
       } catch (e) { /* not ours */ }
@@ -222,6 +235,9 @@ function Call({ session, nameRef, langRef, appRef, report }) {
     nameRef.current = name.trim();
     langRef.current = lang;
     appRef.current = app.trim();
+    voiceRef.current = voicePick[lang] || "";
+    setCallVoice(voiceRef.current);
+    setFellBack(false);
     setCallLang(lang);
     report.begin();
     report.add("start_clicked", { ua: navigator.userAgent.slice(0, 120) });
@@ -249,6 +265,11 @@ function Call({ session, nameRef, langRef, appRef, report }) {
   }
 
   const live = phase === "starting" || phase === "live";
+  const langVoices = voices.filter((v) => v.language === lang);
+  const picked = voices.find((v) => v.id === callVoice);
+  // the pick speaks its own language; after a switch to the other one, the configured voice speaks
+  const voiceChip = !(picked && picked.language === callLang) ? "Default voice"
+    : fellBack ? "Deepgram (fallback)" : picked.label.split(" · ")[0];
   const status = phase === "starting" ? ["connecting", "Connecting…"]
     : agent.state === "speaking" ? ["speaking", "Giulia is speaking"]
     : agent.state === "listening" ? ["listening", "Listening"]
@@ -295,6 +316,7 @@ function Call({ session, nameRef, langRef, appRef, report }) {
                 <span className="status-text" aria-live="polite">{status[1]}</span>
                 {phase === "live" && <Elapsed since={startedAt.current} />}
                 <span className="chip">{callLang === "en" ? "English" : "Italiano"}</span>
+                <span className="chip">{voiceChip}</span>
               </div>
               <div className="control-actions">
                 {/* while the browser blocks her audio, hearing her is the main action; the tap is the gesture it wants */}
@@ -303,7 +325,7 @@ function Call({ session, nameRef, langRef, appRef, report }) {
               </div>
             </>
           ) : (
-            <form className="setup" onSubmit={(e) => { e.preventDefault(); start(); }}>
+            <form className={`setup${langVoices.length ? " with-voice" : ""}`} onSubmit={(e) => { e.preventDefault(); start(); }}>
               <input className="input in-name" placeholder="Your first name (optional)" aria-label="Your first name (optional)" value={name} maxLength={60} autoComplete="given-name" onChange={(e) => setName(e.target.value)} />
               <div className="segmented" role="radiogroup" aria-label="Call language">
                 {LANGS.map(([value, label]) => (
@@ -313,6 +335,16 @@ function Call({ session, nameRef, langRef, appRef, report }) {
                   </label>
                 ))}
               </div>
+              {langVoices.length > 0 && (
+                <label className="select-wrap in-voice">
+                  <span className="sr-only">Giulia's voice</span>
+                  <select className="input select" value={voicePick[lang]} onChange={(e) => setVoicePick((p) => ({ ...p, [lang]: e.target.value }))}>
+                    <option value="">Default voice</option>
+                    {langVoices.map((v) => <option key={v.id} value={v.id} title={v.note}>{v.label}</option>)}
+                  </select>
+                  <ChevronDown aria-hidden="true" />
+                </label>
+              )}
               <input className="input in-app" placeholder="App for Giulia to ask about (optional)" aria-label="An app you built, for Giulia to ask about (optional)" value={app} maxLength={60} onChange={(e) => setApp(e.target.value)} />
               <button type="submit" className="btn btn-primary"><Phone aria-hidden="true" />Start talking</button>
             </form>

@@ -10,6 +10,7 @@ Run:  uv run ai-sdr agent start      (everywhere: laptop, preview, prod; behavio
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -22,7 +23,6 @@ import psycopg
 from google.protobuf.duration_pb2 import Duration
 from livekit import api, rtc
 from livekit.agents import AgentServer, JobContext, JobProcess, NOT_GIVEN, cli
-from livekit.agents.voice import room_io
 from livekit.plugins import silero
 from psycopg.rows import dict_row
 
@@ -32,7 +32,9 @@ from ..integrations.calendar import FakeCalendar, get_calendar
 from ..integrations.hubspot import HubSpot
 from ..voice import config as voice_config
 from ..voice.factory import build_session
-from ..voice.providers import Voices, elevenlabs_credits_left
+from ..voice.providers import Voices, build_stt, elevenlabs_credits_left
+from ..voice import texture
+from ..voice.catalog import BY_ID as VOICE_CATALOG, CatalogVoice
 from ..voice.lifecycle import CallController
 from ..voice.line_watch import LineWatch
 from ..voice.telemetry import CallTelemetry, save_report
@@ -150,8 +152,9 @@ def call_language(meta: dict, prospect: dict | None = None, phone: str | None = 
 
 
 def _start_call(ctx: JobContext, channel: str, call_id: Any = None, tts_request: list[str] | None = None,
-                language: str | None = None):
-    """Session + controller + telemetry + voices for one call, wired the same way for every channel."""
+                language: str | None = None, voice_choice: CatalogVoice | None = None, notify=None):
+    """Session + controller + telemetry + voices for one call, wired the same way for every channel. notify: the
+    Talk page's live events (web calls), told when a voice falls back so the page never names the wrong voice."""
     language = language or CFG.language
     room = ctx.job.room.name   # known before the room connection (web calls start the session first)
     ctx.log_context_fields = {"room": room, "job_id": ctx.job.id, "channel": channel, "language": language,
@@ -163,10 +166,15 @@ def _start_call(ctx: JobContext, channel: str, call_id: Any = None, tts_request:
         telemetry.event("voice", language=lang, chain=list(chain), override=bool(tts_request),
                         elevenlabs_credits_left=el_left)
         if hasattr(voice, "on"):  # a fallback chain: record every switch (shows on the metrics page)
-            voice.on("tts_availability_changed", lambda ev: telemetry.event(
-                "voice_switch", language=lang, voice=type(ev.tts).__module__.split(".")[-2], available=ev.available))
+            def switched(ev) -> None:
+                who = type(ev.tts).__module__.split(".")[-2]   # inference | deepgram | elevenlabs
+                telemetry.event("voice_switch", language=lang, voice=who, available=ev.available)
+                if notify is not None:   # 20 Oct: a picked voice out of LiveKit credit fell back silently
+                    asyncio.get_event_loop().create_task(notify("voice_switch", {
+                        "language": lang, "voice": who, "available": ev.available}))
+            voice.on("tts_availability_changed", switched)
 
-    voices = Voices(CFG, tts_request, el_left, on_build=on_voice)
+    voices = Voices(CFG, tts_request, el_left, on_build=on_voice, choice=voice_choice)
     t = time.monotonic()
     built = build_session(CFG, ctx.proc.userdata["vad"], language=language, tts=voices.get(language),
                           channel=channel)
@@ -180,15 +188,31 @@ def _start_call(ctx: JobContext, channel: str, call_id: Any = None, tts_request:
     _CALL.update(session=built.session, telemetry=telemetry, controller=controller, extra=dict)
     log.info("call starting: %s", json.dumps(CFG.describe()))
     controller.scope.spawn(sample_during_call(ctx.room, telemetry.transport_sample), "transport-stats")
+    texture.keep_llm_warm(CFG, built.session, controller.scope)
     return built.session, controller, telemetry, voices
+
+
+async def _start_texture(ctx: JobContext, controller: CallController) -> None:
+    """Room tone and typing (voice/texture.py): needs the connected room, and never holds up the opener."""
+    texture_ = texture.Texture(CFG)
+    controller.texture = texture_
+    ctx.add_shutdown_callback(texture_.aclose)
+    controller.scope.spawn(texture_.start(ctx.room, controller.session), "background-audio")
 
 
 def _agent(actions: CallActions, recorder, controller: CallController, voices: Voices, language: str,
            instructions_for) -> SDRAgent:
     """The call's first agent; switch_language makes its twins from the same instructions_for and voices."""
+    hearing: dict[str, Any] = {}   # speech-to-text per language, built on the first switch into it
+
+    def hear(lang: str):
+        if lang not in hearing:
+            hearing[lang] = build_stt(CFG, lang)
+        return hearing[lang]
+
     return SDRAgent(actions, instructions_for(language), recorder, controller, language=language,
-                    instructions_for=instructions_for, voices=voices.get, pronunciations=CFG.pronunciations,
-                    filler_delay=CFG.filler_delay)
+                    instructions_for=instructions_for, voices=voices.get, hearing=hear,
+                    pronunciations=CFG.pronunciations, filler_delay=CFG.filler_delay)
 
 
 async def on_session_end(ctx: JobContext) -> None:
@@ -248,20 +272,23 @@ async def web_demo(ctx: JobContext, meta: dict, connected: bool = False) -> None
             json.dumps({"type": type_, **payload}, default=str), reliable=True, topic="sdr.events")
 
     actions.notify = publish
+    # a voice picked on the page (voice/catalog.py); unknown ids are ignored
+    voice_choice = VOICE_CATALOG.get(str(meta.get("voice") or ""))
     session, controller, telemetry, voices = _start_call(ctx, "web", tts_request=meta.get("tts_chain"),
-                                                         language=language)
+                                                         language=language, voice_choice=voice_choice, notify=publish)
     _CALL["extra"] = lambda: _outcome(state)
     agent = _agent(actions, NullRecorder(), controller, voices, language,
                    lambda lang: build_instructions(prospect, language=lang, card=card))
     t = time.monotonic()
     # links to the first person who joins; agent audio waits for them to be subscribed
     await session.start(agent=agent, room=ctx.room, record=False,
-                        room_options=room_io.RoomOptions(delete_room_on_close=True))
+                        room_options=texture.room_options(CFG, delete_room_on_close=True))
     telemetry.event("session_started", took_s=round(time.monotonic() - t, 3))
     if not connected:
         t = time.monotonic()
         await ctx.connect()
         telemetry.event("connected", took_s=round(time.monotonic() - t, 3))
+    await _start_texture(ctx, controller)
     LineWatch(controller, actions).attach()
     controller.greet(opener(prospect, language, card=card))
     _arm_duration_cap(controller, settings().demo_max_call_seconds)
@@ -388,8 +415,9 @@ async def phone_call(ctx: JobContext, meta: dict, outbound: bool, participant: r
             return
     # the session starts only once someone is on the line (LiveKit's outbound pattern)
     await session.start(agent=agent, room=ctx.room, record=False,
-                        room_options=room_io.RoomOptions(participant_identity=identity if outbound else NOT_GIVEN,
-                                                         delete_room_on_close=True))
+                        room_options=texture.room_options(CFG, participant_identity=identity if outbound else NOT_GIVEN,
+                                                          delete_room_on_close=True))
+    await _start_texture(ctx, controller)
     if outbound:
         status["answered"] = True
         status["outcome"] = "in_progress"

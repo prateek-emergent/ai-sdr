@@ -231,8 +231,13 @@ html[data-talk-theme="dark"] .talk {
   width: 100%;
   margin: 0;
 }
+.setup.with-voice {
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 1.3fr) auto;
+  grid-template-areas: "name lang voice app go";
+}
 .in-name { grid-area: name; }
 .in-app { grid-area: app; }
+.in-voice { grid-area: voice; }
 .setup .segmented { grid-area: lang; }
 .setup .btn { grid-area: go; }
 
@@ -251,6 +256,21 @@ html[data-talk-theme="dark"] .talk {
 }
 .input::placeholder { color: var(--ink-3); opacity: 1; }
 .input:hover { border-color: var(--hairline-strong); }
+
+/* the voice choice: a native select (keyboard and screen readers for free) dressed as the other inputs */
+.select-wrap { position: relative; display: block; min-width: 0; }
+.select { width: 100%; padding-right: 36px; -webkit-appearance: none; appearance: none; cursor: pointer; }
+.select-wrap svg {
+  position: absolute;
+  top: 50%;
+  right: 12px;
+  width: 16px;
+  height: 16px;
+  color: var(--ink-3);
+  stroke-width: 1.75;
+  transform: translateY(-50%);
+  pointer-events: none;
+}
 
 .segmented {
   display: flex;
@@ -466,6 +486,7 @@ html[data-talk-theme="dark"] .talk {
 
 @media (max-width: 960px) {
   .setup { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "name lang" "app go"; }
+  .setup.with-voice { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; grid-template-areas: "name voice lang" "app app go"; }
 }
 
 @media (max-width: 760px) {
@@ -484,6 +505,7 @@ html[data-talk-theme="dark"] .talk {
 
 @media (max-width: 600px) {
   .setup { grid-template-columns: minmax(0, 1fr); grid-template-areas: "name" "lang" "app" "go"; }
+  .setup.with-voice { grid-template-columns: minmax(0, 1fr); grid-template-areas: "name" "lang" "voice" "app" "go"; }
   .segmented label { flex: 1; }
   .segmented span { width: 100%; }
   .line { max-width: 88%; }
