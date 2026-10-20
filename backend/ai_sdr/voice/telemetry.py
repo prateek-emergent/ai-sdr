@@ -37,6 +37,44 @@ def _pct(values: list[float], q: int) -> float | None:
 MAX_LOG_LINES = 1500
 
 
+def _num(v: Any) -> float | None:
+    return round(float(v), 3) if isinstance(v, (int, float)) else None
+
+
+class EotLogger:
+    """Stands in for LiveKit's logger in its end-of-turn module. LiveKit logs every end-of-turn decision at DEBUG
+    ("eot prediction": the model's probability, the language's threshold, the delay it chose). It is the only place the
+    threshold shows (v1's comes from the server), and it says why a turn waited the full max_delay (21 Oct: 14% of
+    caller turns on the pod, 42% in that week's test calls). Everything else passes straight through to LiveKit's own
+    logger (a subclass with extra methods such as trace(), so it is wrapped, never replaced)."""
+
+    def __init__(self, inner: Any, telemetry: "CallTelemetry"):
+        self._inner, self._telemetry = inner, telemetry
+
+    def debug(self, msg: Any, *args: Any, **kwargs: Any) -> None:
+        if msg == "eot prediction":
+            d = kwargs.get("extra") or {}
+            self._telemetry.event("eot", probability=_num(d.get("probability")),
+                                  threshold=_num(d.get("unlikely_threshold")), delay=_num(d.get("endpointing_delay")),
+                                  language=d.get("language") or None, trigger=d.get("trigger"))
+        self._inner.debug(msg, *args, **kwargs)
+
+    def __getattr__(self, name: str) -> Any:
+        return getattr(self._inner, name)
+
+
+def capture_eot(telemetry: "CallTelemetry") -> None:
+    """Wrap the logger of LiveKit's end-of-turn module for this call (a job is one process)."""
+    try:
+        from livekit.agents.voice import audio_recognition
+    except Exception:  # noqa: BLE001 - a diagnostic never stops a call
+        return
+    inner = audio_recognition.logger
+    if isinstance(inner, EotLogger):
+        inner = inner._inner
+    audio_recognition.logger = EotLogger(inner, telemetry)
+
+
 class CallLogBuffer(logging.Handler):
     """Keeps this call's log lines (INFO and up) for its report, so the metrics page can show them next to the
     timeline. A job runs in its own process, so everything logged here belongs to this call."""
@@ -101,6 +139,7 @@ class CallTelemetry:
         session.on("function_tools_executed", lambda ev: self.event(
             "tools", calls=[c.name for c in ev.function_calls]))
         session.on("agent_false_interruption", lambda ev: self.event("false_interruption"))
+        capture_eot(self)
 
     def _on_item(self, ev) -> None:
         item = ev.item
@@ -151,6 +190,7 @@ class CallTelemetry:
             "eot_p50": _pct(vals["end_of_turn_delay"], 50), "eot_p95": _pct(vals["end_of_turn_delay"], 95),
             "stt_p50": _pct(vals["transcription_delay"], 50), "stt_p95": _pct(vals["transcription_delay"], 95),
             **self._models(history_items),
+            **self._eot(),
             "eot_hit_max": sum(1 for v in vals["end_of_turn_delay"] if v >= self.cfg.endpointing_max - 0.05),
             "errors": len(self.errors), "task_failures": len(self.task_failures),
             "chars_spoken": self.chars_spoken,
@@ -182,6 +222,15 @@ class CallTelemetry:
         return {"llm_model": llm_model, "llm_models": llm_models, "llm_pick": pick,
                 "tts_model": most("tts_metadata", replies_only=True)[0],
                 "stt_model": most("stt_metadata", replies_only=False)[0]}
+
+    def _eot(self) -> dict:
+        """The turn detector's decisions: how often it was unsure (probability under the threshold, so the turn
+        waited max_delay), the thresholds it used and the languages it was told."""
+        preds = [e for e in self.events if e["kind"] == "eot" and e.get("probability") is not None]
+        unsure = [e for e in preds if e.get("threshold") is not None and e["probability"] < e["threshold"]]
+        return {"eot_predictions": len(preds), "eot_unsure": len(unsure),
+                "eot_thresholds": sorted({e["threshold"] for e in preds if e.get("threshold") is not None}),
+                "eot_languages": sorted({e["language"] for e in preds if e.get("language")})}
 
     def _pauses(self) -> dict:
         """Giulia going quiet in the MIDDLE of a line and carrying on: what a caller hears as "stuck". Her line is

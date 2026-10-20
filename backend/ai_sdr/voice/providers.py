@@ -208,5 +208,7 @@ def build_llm(cfg: VoiceConfig, choice: CatalogLLM | None = None) -> llm.LLM:
     models = [_one_llm(r, cfg.llm_max_output_tokens, cfg.llm_prompt_cache) for r in cfg.llm_routes]
     if choice is not None and available(choice):
         models.insert(0, picked_llm(choice, cfg.llm_max_output_tokens, cfg.llm_prompt_cache))
+    # sticky: once a model fails, the call stays on the next one instead of going back to a primary that may fail again
+    # (each failure can cost up to attempt_timeout of silence; the fallback is ~0.1 s slower to first token)
     return llm.FallbackAdapter(models, attempt_timeout=cfg.llm_attempt_timeout,
-                               max_retry_per_llm=1 if len(models) == 1 else 0, retry_interval=0.1)
+                               max_retry_per_llm=1 if len(models) == 1 else 0, retry_interval=0.1, sticky=True)
