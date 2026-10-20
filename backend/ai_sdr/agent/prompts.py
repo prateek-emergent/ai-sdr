@@ -63,13 +63,21 @@ def build_instructions(prospect: dict | None, *, language: str, inbound: bool = 
     )
 
 
-def opener(prospect: dict | None, language: str, *, card: CustomerCard | None = None, callback: bool = False) -> str:
+def opener(prospect: dict | None, language: str, *, card: CustomerCard | None = None, callback: bool = False,
+           now: datetime | None = None) -> str:
     """Said verbatim as soon as the person picks up and greets: AI disclosure first (EU AI Act art. 50). Names the app
     they built when we know it (20 Oct: half the Nooks "no"s came at a generic opener), and a callback they asked for
-    is introduced as one instead of as a first call."""
+    is introduced as one instead of as a first call.
+    20 Oct ("it sounds like a bot"): spoken wording, the app as an apposition ("la sua app, X": names arrive as
+    free text, and "ha creato gestionale per lo studio" lost its article), Buonasera after 17:00 their time."""
     s = settings()
     first = (card.first_name if card and card.first_name else None) or (prospect or {}).get("first_name")
     app = card.first_app() if card else None
+    tz = (prospect or {}).get("tz") or "Europe/Rome"
+    try:
+        local = now.astimezone(ZoneInfo(tz)) if now else datetime.now(ZoneInfo(tz))
+    except Exception:  # an unknown time zone in the data must not break the greeting
+        local = now or datetime.now()
     if language == "en":
         recording = " This call is recorded to improve our service." if s.recording_enabled else ""
         who = "the AI assistant from the founder's office at" if s.persona_variant == "founders_office" \
@@ -78,10 +86,13 @@ def opener(prospect: dict | None, language: str, *, card: CustomerCard | None = 
         if callback:
             return (f"{hi} it's {s.agent_persona_name}, {who} {s.company_name}, calling you back as we agreed."
                     f"{recording} Is now still a good time?")
-        what = f"the platform you used to build {app}" if app else "the platform you used to build apps with AI"
-        return (f"{hi} I'm {s.agent_persona_name}, {who} {s.company_name}, {what}. I'm calling for some quick feedback "
-                f"on your experience.{recording} Do you have a couple of minutes?")
-    hello = f"Buongiorno {first}," if first else "Buongiorno,"
+        if app:
+            return (f"{hi} it's {s.agent_persona_name}, {who} {s.company_name}. I'm calling about your app, {app}: "
+                    f"we'd love to hear how it's going.{recording} Do you have a couple of minutes?")
+        return (f"{hi} it's {s.agent_persona_name}, {who} {s.company_name}, the platform for building apps with AI. "
+                f"I'm calling to hear how it's going for you.{recording} Do you have a couple of minutes?")
+    greeting = "Buongiorno" if 5 <= local.hour < 17 else "Buonasera"
+    hello = f"{greeting} {first}," if first else f"{greeting},"
     recording = " La chiamata è registrata per migliorare il servizio." if s.recording_enabled else ""
     # Say what the company is up front: "Emergent" is often misheard as "emergency" (analysis/SYNTHESIS.md §3).
     who = ("l'assistente AI dell'ufficio del founder di" if s.persona_variant == "founders_office"
@@ -89,10 +100,11 @@ def opener(prospect: dict | None, language: str, *, card: CustomerCard | None = 
     if callback:
         return (f"{hello} sono {s.agent_persona_name}, {who} {s.company_name}: la richiamo come d'accordo."
                 f"{recording} È ancora un buon momento?")
-    what = (f"la piattaforma con cui ha creato {app}" if app
-            else "la piattaforma che ha usato per creare app con l'intelligenza artificiale")
-    return (f"{hello} sono {s.agent_persona_name}, {who} {s.company_name}, {what}. La chiamo per un breve feedback "
-            f"sulla sua esperienza.{recording} Ha un paio di minuti?")
+    if app:
+        return (f"{hello} sono {s.agent_persona_name}, {who} {s.company_name}. La chiamo per la sua app, {app}: "
+                f"volevamo sapere come si sta trovando.{recording} Ha due minuti?")
+    return (f"{hello} sono {s.agent_persona_name}, {who} {s.company_name}, la piattaforma per creare app con "
+            f"l'intelligenza artificiale. La chiamo per sapere come si sta trovando.{recording} Ha due minuti?")
 
 
 def inbound_greeting(language: str) -> str:

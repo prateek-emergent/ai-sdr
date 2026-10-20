@@ -108,13 +108,16 @@ async def test_fetch_card_from_hubspot_and_timeout():
 # ---- openers
 def test_openers():
     card = sample_card()
-    it = opener({"first_name": "Marco"}, "it", card=card)
-    assert it.startswith("Buongiorno Marco,") and "assistente AI" in it and "con cui ha creato Trattoria Manager" in it
-    en = opener(None, "en", card=card)
-    assert "the platform you used to build Trattoria Manager" in en and "AI assistant" in en
+    morning = datetime(2026, 10, 20, 9, 30, tzinfo=ZoneInfo("Europe/Rome"))
+    evening = datetime(2026, 10, 20, 18, 30, tzinfo=ZoneInfo("Europe/Rome"))
+    it = opener({"first_name": "Marco"}, "it", card=card, now=morning)
+    assert it.startswith("Buongiorno Marco,") and "assistente AI" in it and "la sua app, Trattoria Manager:" in it
+    assert opener({"first_name": "Marco"}, "it", card=card, now=evening).startswith("Buonasera Marco,")
+    en = opener(None, "en", card=card, now=morning)
+    assert "your app, Trattoria Manager:" in en and "AI assistant" in en
     assert "la richiamo come d'accordo" in opener({"first_name": "Marco"}, "it", card=card, callback=True)
     assert "calling you back as we agreed" in opener(None, "en", card=card, callback=True)
-    assert "build apps with AI" in opener({"first_name": "Anna"}, "en")
+    assert "building apps with AI" in opener({"first_name": "Anna"}, "en")
 
 
 # ---- language choice
