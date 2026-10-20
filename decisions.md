@@ -58,3 +58,24 @@ PENDING · rotate HubSpot private-app token · pasted in chat
 2026-10-20 · PRODUCT.md, DESIGN.md, .impeccable/ (surface brief, design.json) in repo; .impeccable/review/ screenshots gitignored · design record for later UI work; PNGs not app code
 2026-10-20 · voice light level = clamp((volume - 0.08) × 3) (App.js VoiceField) · mic never reads 0 (room noise) · UNPROVEN, tune if a disc sits swollen in silence or barely moves
 2026-10-20 · Impeccable concept roll skipped (FORM: direction pinned) · Prateek pinned palette, material, layout; reviewer's one open item · PENDING: Prateek accepts or asks for a roll
+2026-10-20 · Giulia's voice = ElevenLabs "Ginevra" QITiGyM4owEZrBEf0QV8, for it AND en · warm, no strong accent, built for conversation, free-plan allowed; one voice = same person after a mid-call switch · alts: Rossana MuTiG4dbrEGYEy3XP4iP, Giusy 8KInRSd4DtD5L5gK7itu
+2026-10-20 · local run on the Mac: run-local.sh, AGENT_NAME=ai-sdr-local, reports to files (no MongoDB yet); pod copies of .env kept as pod.env · local calls never reach the pod or prod
+PENDING · ElevenLabs is on the free plan and its 10k credits are used up until 18 Nov 2026 (Deepgram voice until then); Starter $6/mo = 30k credits + commercial licence · Prateek
+PENDING · Soniox key: no free API credits since Oct 2025; pay-as-you-go $0.12/h streaming · Prateek creates console.soniox.com account
+PENDING · pod .env: ELEVENLABS_VOICE_ID_IT and _EN = QITiGyM4owEZrBEf0QV8 · same voice as local
+2026-10-20 · PREEMPTIVE_TTS 1 → 0 · a cancelled draft voice stream closed the TTS websocket, so every reply reconnected (+0.8 s from the laptop); scripted IT call e2e p50 2.61 → 1.79 s · revert: PREEMPTIVE_TTS=1
+2026-10-20 · prompt v4 (it/en): listen before asking, spoken register, natural booking lines, Lei → tu if they use tu, "let me check" before lookups · test calls re-offered an accepted call, said "non è disponibile in questo momento", "slot" · revert: git revert
+2026-10-20 · opener: spoken wording, app as apposition ("la sua app, X"), Buonasera after 17:00 their time · "ha creato gestionale per lo studio" had no article
+2026-10-20 · Deepgram in the call's language; the language twin gets its own STT stream · "multi" lost punctuation → turns waited ENDPOINTING_MAX_S; it→en switch test heard English fine · revert: DEEPGRAM_LANGUAGE=multi
+2026-10-20 · office room tone (0.8) + typing only during calendar lookups (0.5) · "feels like a bot"; levels measured: room tone ~29 dB, typing ~18 dB under her voice · UNPROVEN by ear, revert: BACKGROUND_AMBIENCE=off TYPING_SOUND=0
+2026-10-20 · noise cancellation: Krisp BVC (web), BVCTelephony (phone) · noise shouldn't count as the caller talking · revert: NOISE_CANCELLATION=off; pod needs livekit-plugins-noise-cancellation
+2026-10-20 · LLM warm-up built, off (LLM_WARM_ON_SPEECH) · laptop: slower while the caller spoke (ttft p50 1.61 vs 1.04 s), no gain after she spoke; proxy drops idle connections · retest on the pod
+2026-10-20 · knobs: ENDPOINTING_MODE, TURN_UNLIKELY_THRESHOLD, TTS_EXPRESSIVE · short Italian answers ("Sì, sì. Dimmi pure.") wait the full 1.2 s; tune on real calls
+2026-10-20 · voice: most human = ElevenLabs v4 Turbo (AA #1, paid plan or startup grant); best free = Inworld TTS-2 via LiveKit Inference (AA #7, Italian GA, ~1.8 h/month on the free credit, first audio +0.2 s vs Deepgram) · local runs Inworld "Orietta" → Deepgram fallback
+PENDING · Prateek picks Giulia's voice by ear (~/.ai-sdr-local/voice-samples) · then set on the pod
+PENDING · ElevenLabs library voices (Ginevra) need a paid plan: the free tier can't use library voices via the API
+2026-10-20 · repo github.com/prateek-emergent/ai-sdr is PUBLIC (logged as private above); Prateek keeps it public · scanned: no .env, keys or tokens in it
+2026-10-20 · CORRECTION: PREEMPTIVE_TTS stays 1 (default). The 'off' finding was a laptop artifact: pod run of the same call, preemptive on = first audio 0.07 s, e2e p50 1.20 s; reconnects are only slow far from Deepgram · local .env keeps PREEMPTIVE_TTS=0
+2026-10-20 · Talk page voice picker: 5 IT + 5 EN female voices (voice/catalog.py): Cartesia Sonic 3.6 ×3, Inworld TTS-2, Deepgram Aura-2 per language; Deepgram behind every LiveKit Inference pick · AA arena (Cartesia #4, Inworld #7) + measured first audio (Cartesia 0.11-0.14 s warm); Gemini 3.8 Flash (#5) left out: 1.1-1.5 s first audio
+2026-10-20 · a voice fallback is shown on the page (chip "Deepgram (fallback)" + action row) · picks out of credit fell back silently, so a test would name the wrong voice
+PENDING · LiveKit Inference voices refuse with 429 (free plan's monthly quota used by the day's voice tests); Cartesia/Inworld picks speak Deepgram until the reset or an upgrade, or Cartesia/Inworld keys of our own
