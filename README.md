@@ -45,6 +45,15 @@ Before every push, from `backend/`: `python -m pytest` and `python -m ai_sdr.age
 - **Grades.** The web backend starts `ai_sdr.evals.watch` next to the voice supervisor. It grades every finished call (a judge model on 15 checks from the prompt and the Nooks calls, plus counted checks), writes the grade into the call report (`eval`), and puts the score, outcome, timings and failed checks on the call's Langfuse trace. Log: `/tmp/ai_sdr_evals.log`.
 - **Simulated customers.** 14 scenarios (`ai_sdr/evals/scenarios.py`) played by a model against the real prompt and tools, in text, each call graded plus "did it end where it should".
 - **Improve.** Reads the failures, proposes one change to both prompts, runs the scenarios on the old and new prompt, writes a report. A person decides; `--apply` copies it into the repo.
+- **Quality page** (`/quality`): how calls are graded, the share of calls passing each check, how far the grader can be trusted, and every call with its verdicts, quotes and transcript.
+  - Trust in the grader is measured two ways: people mark verdicts right or wrong, and "Grade again" checks the judge's consistency.
+  - It uses the same token as `/calls`. Its "Share link" button copies a `?token=` link that opens for anyone who has it, and that link includes the transcripts.
+- **Live timing** on the Talk page: each reply's steps as a flow and a waterfall against the 1.5 s target, plus tool durations and every reply so far.
+  - The steps are heard, turn over, tools, thinking, voice, and Giulia audible.
+  - The data comes from LiveKit's turn metrics, which the worker sends on `sdr.events` (`ai_sdr/voice/live.py`).
+- **Langfuse links**:
+  - **Langfuse** button: opens the project dashboard. Members sign in; the free plan has 2 seats.
+  - **Trace** link, per call: test calls' traces are public (`TRACE_PUBLIC`), so they open for anyone, with no login.
 
 From `backend/`, with its venv's python (`/root/.venv/bin/python` on the pod):
 
@@ -62,6 +71,7 @@ python -m ai_sdr.cli evals scenarios
 | `LANGFUSE_BASE_URL` (or `LANGFUSE_HOST`) | `https://cloud.langfuse.com` | EU region; `https://us.cloud.langfuse.com` for US. |
 | `TRACE_CONTENT` | `masked` | `masked`: the conversation with emails and phone numbers replaced · `full` · `off`: timings, models and tokens only. |
 | `TRACE_SPANS` | `turns` | `turns`: the call, turns, LLM requests, voice and tools, about 6 spans per turn (the free plan counts spans and scores: 50k units a month) · `all`: every span LiveKit emits. |
+| `TRACE_PUBLIC` | `web,simulation` | Whose traces anyone with the link can open without a Langfuse login. Real customers' phone calls stay members-only unless listed. `all` · `none` · a comma list. |
 | `EVALS_AUTO` | `1` | `0`: don't grade finished calls. |
 | `EVAL_JUDGE_MODEL` / `EVAL_CUSTOMER_MODEL` / `EVAL_IMPROVE_MODEL` | `claude-sonnet-5-5` / `claude-haiku-4-5` / `claude-opus-5-5` | Models on the same gateway as the calls (LiteLLM names). |
 | `EVAL_DIR` | `~/.ai-sdr/evals` | Where simulation runs and improvement reports go. |

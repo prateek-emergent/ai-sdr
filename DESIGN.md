@@ -392,6 +392,27 @@ The left side of the live control bar: a 10px status dot, the status line (Trans
 ### Voice Light
 The signature. Two crisp discs fixed behind the page, each with two hairline rings (7% and 16% beyond the disc, the outer at 60% opacity), placed across the console's top-left (Giulia) and bottom-right (you) corners. Each swells with its speaker's live voice level: up to 12% larger, and from its resting opacity (0.85 for Giulia and 0.7 for you in light mode; 0.9 and 0.8 in dark) up to full, following the voice with a 160ms ease-out. They hold still when idle. Under reduced motion they never scale: only their opacity changes, from a resting 0.4, with a 0.4s linear transition. They take no pointer events and are hidden from assistive technology.
 
+### Timing Strip
+Added 20 Oct. It sits between the control bar and the panes while a call runs, and it can be closed: open by default on a laptop, closed on a phone, and the choice is remembered. It holds three things. On the left, the caller's wait as a 24px Title-weight figure with tabular digits, dashed-underlined when it is over the 1.5s target. On the right, a strip of 6px bars, one per reply, the latest in ink. Below, the flow and the waterfall.
+
+The flow is a row of 30px nodes joined by a 1px line: dashed until a step is done, then solid. A finished step is an ink-filled disc. The step happening now is an ink ring with the Call Status ripple. A step not reached yet is a hairline ring. Tools are 9px-radius squares; people and the voice are round. Each node has a Caption label, a tabular value and, where known, the model in Meta.
+
+The waterfall puts the same reply on one time axis, starting when you stopped talking. Each step gets its own lane:
+- **Heard:** an outlined bar.
+- **Turn over:** a dashed outline.
+- **Thinking:** a second-ink fill, with a hatched tail up to her first sentence.
+- **Voice:** an ink fill.
+
+A dashed line marks the target and a solid ink line marks the moment Giulia became audible. It is all monochrome: state is told by fill, outline, dash and motion.
+
+### Quality Page
+`/quality` uses the same tokens as a scrolling page of glass panels, with no fixed console. Pass, fail and n/a are told by shape:
+- **Pass:** an outlined check.
+- **Fail:** an ink-filled mark.
+- **N/a:** a dashed ring.
+
+A must-rule is an outlined pill when the rule held, and turns into a solid ink tag in the call list when it broke. A call opens in a right-hand drawer that is frosted but nearly opaque (90%), so the page behind never competes with the verdicts.
+
 ## Do's and Don'ts
 
 ### Do:
