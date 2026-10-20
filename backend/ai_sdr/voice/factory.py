@@ -8,6 +8,7 @@ from livekit.agents.types import APIConnectOptions
 from livekit.agents.voice.agent_session import SessionConnectOptions
 
 from .config import VoiceConfig
+from .llm_catalog import CatalogLLM
 from .providers import build_llm, build_stt
 
 
@@ -18,9 +19,10 @@ class BuiltSession:
 
 
 def build_session(cfg: VoiceConfig, vad: lk_vad.VAD, *, language: str, tts: lk_tts.TTS,
-                  channel: str = "web") -> BuiltSession:
+                  channel: str = "web", llm_choice: CatalogLLM | None = None) -> BuiltSession:
     """language: the one the call starts in. tts: that language's voice (providers.Voices); after a mid-call switch
-    the new agent brings its own voice, while speech-to-text, turn detection and the LLM stay with the session."""
+    the new agent brings its own voice, while speech-to-text, turn detection and the LLM stay with the session.
+    llm_choice: a model picked on the Talk page (voice/llm_catalog.py)."""
     # A new turn detector for every call: when it falls back to the local model (cloud error, or one prediction
     # slower than 1 s) it changes its own state, and a shared one would carry that into every later call.
     td = inference.TurnDetector(version=cfg.turn_detector_version,
@@ -28,7 +30,7 @@ def build_session(cfg: VoiceConfig, vad: lk_vad.VAD, *, language: str, tts: lk_t
                                    if cfg.turn_unlikely_threshold else {}))
     session = AgentSession(
         stt=build_stt(cfg, language),
-        llm=build_llm(cfg),
+        llm=build_llm(cfg, llm_choice),
         tts=tts,
         vad=vad,
         turn_handling={

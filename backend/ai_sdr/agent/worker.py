@@ -35,6 +35,7 @@ from ..voice.factory import build_session
 from ..voice.providers import Voices, build_stt, elevenlabs_credits_left
 from ..voice import live, texture, tracing
 from ..voice.catalog import BY_ID as VOICE_CATALOG, CatalogVoice
+from ..voice.llm_catalog import BY_ID as LLM_CATALOG, CatalogLLM
 from ..voice.lifecycle import CallController
 from ..voice.line_watch import LineWatch
 from ..voice.telemetry import CallTelemetry, save_report
@@ -156,17 +157,21 @@ def call_language(meta: dict, prospect: dict | None = None, phone: str | None = 
 
 
 def _start_call(ctx: JobContext, channel: str, call_id: Any = None, tts_request: list[str] | None = None,
-                language: str | None = None, voice_choice: CatalogVoice | None = None, notify=None):
+                language: str | None = None, voice_choice: CatalogVoice | None = None,
+                llm_choice: CatalogLLM | None = None, notify=None):
     """Session + controller + telemetry + voices for one call, wired the same way for every channel. notify: the
-    Talk page's live events (web calls), told when a voice falls back so the page never names the wrong voice."""
+    Talk page's live events (web calls), told when a voice or a picked model falls back so the page never names the
+    wrong one."""
     language = language or CFG.language
     room = ctx.job.room.name   # known before the room connection (web calls start the session first)
     ctx.log_context_fields = {"room": room, "job_id": ctx.job.id, "channel": channel, "language": language,
                               "agent_name": CFG.agent_name, "version": CFG.version}
     telemetry = CallTelemetry(CFG, room=room, job_id=ctx.job.id, channel=channel, call_id=call_id)
+    tags = [f"voice:{voice_choice.id}"] if voice_choice else []
+    if llm_choice:   # Langfuse can filter a model's calls (and compare its latency) by this tag
+        tags.append(f"llm:{llm_choice.id}")
     tracing.call_started(room, channel=channel, language=language, version=CFG.version, environment=CFG.agent_name,
-                         user=f"call-{call_id}" if call_id else None,
-                         tags=[f"voice:{voice_choice.id}"] if voice_choice else None)
+                         user=f"call-{call_id}" if call_id else None, tags=tags or None)
     el_left = ctx.proc.userdata.get("elevenlabs_left")
 
     def on_voice(lang: str, chain: tuple[str, ...], voice) -> None:
@@ -184,10 +189,12 @@ def _start_call(ctx: JobContext, channel: str, call_id: Any = None, tts_request:
     voices = Voices(CFG, tts_request, el_left, on_build=on_voice, choice=voice_choice)
     t = time.monotonic()
     built = build_session(CFG, ctx.proc.userdata["vad"], language=language, tts=voices.get(language),
-                          channel=channel)
+                          channel=channel, llm_choice=llm_choice)
     _STARTUP["build_session_s"] = round(time.monotonic() - t, 3)
     telemetry.turn_detector = built.turn_detector
     telemetry.attach(built.session)
+    if llm_choice is not None:
+        _watch_llm(built.session, llm_choice, telemetry, notify)
     # where the time before the first word went (17 Oct: 2 s on preview vs 0.5 s on the laptop)
     telemetry.event("startup", **_STARTUP)
     controller = CallController(built.session, telemetry, language)
@@ -199,6 +206,22 @@ def _start_call(ctx: JobContext, channel: str, call_id: Any = None, tts_request:
     if notify is not None:   # the Talk page's live timing chart (voice/live.py)
         live.stream_timings(built.session, notify)
     return built.session, controller, telemetry, voices
+
+
+def _watch_llm(session, choice: CatalogLLM, telemetry: CallTelemetry, notify) -> None:
+    """Record the picked model, and every time it drops out or comes back (the fallback adapter moved on to the
+    configured model after an error or a stall past LLM_ATTEMPT_TIMEOUT_S)."""
+    telemetry.event("llm", choice=choice.id, provider=choice.provider, model=choice.model)
+    if not hasattr(session.llm, "on"):
+        return
+
+    def switched(ev) -> None:
+        model = getattr(ev.llm, "model", None)
+        telemetry.event("llm_switch", model=model, available=ev.available)
+        if model == choice.model:
+            live.send_soon(notify, "llm_switch", {"model": model, "available": ev.available})
+
+    session.llm.on("llm_availability_changed", switched)
 
 
 async def _start_texture(ctx: JobContext, controller: CallController) -> None:
@@ -285,8 +308,11 @@ async def web_demo(ctx: JobContext, meta: dict, connected: bool = False) -> None
     actions.notify = publish
     # a voice picked on the page (voice/catalog.py); unknown ids are ignored
     voice_choice = VOICE_CATALOG.get(str(meta.get("voice") or ""))
+    # a model picked on the page (voice/llm_catalog.py); unknown ids are ignored
+    llm_choice = LLM_CATALOG.get(str(meta.get("llm") or ""))
     session, controller, telemetry, voices = _start_call(ctx, "web", tts_request=meta.get("tts_chain"),
-                                                         language=language, voice_choice=voice_choice, notify=publish)
+                                                         language=language, voice_choice=voice_choice,
+                                                         llm_choice=llm_choice, notify=publish)
     _CALL["extra"] = lambda: _outcome(state)
     agent = _agent(actions, NullRecorder(), controller, voices, language,
                    lambda lang: build_instructions(prospect, language=lang, card=card))

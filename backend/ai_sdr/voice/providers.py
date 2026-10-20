@@ -13,8 +13,10 @@ from livekit.plugins import anthropic as lk_anthropic
 from livekit.plugins import deepgram, elevenlabs, soniox
 from livekit.plugins import openai as lk_openai
 
+from ..config import settings
 from ..llm import proxy_url
 from .catalog import CatalogVoice
+from .llm_catalog import CatalogLLM, api_key, available
 from .config import DEEPGRAM_VOICES, LLMRoute, VoiceConfig
 
 # what Soniox is told about the conversation (context improves names, product words and numbers)
@@ -156,22 +158,55 @@ class Voices:
         return self._built[language]
 
 
-def _one_llm(route: LLMRoute, max_tokens: int = 0) -> llm.LLM:
+# LiteLLM puts Anthropic's cache marker on the system message (config.llm_prompt_cache). OpenAI models need nothing:
+# OpenAI caches long prompts on its own.
+CACHE_SYSTEM_PROMPT = {"cache_control_injection_points": [{"location": "message", "role": "system"}]}
+
+
+def _cacheable(model: str, prompt_cache: bool) -> bool:
+    return prompt_cache and model.startswith("claude")
+
+
+def _one_llm(route: LLMRoute, max_tokens: int = 0, prompt_cache: bool = False) -> llm.LLM:
     # the per-attempt time limit comes from the fallback adapter (attempt_timeout); this is only a backstop
     timeout = httpx.Timeout(30.0, connect=5.0)
     cap = max_tokens or NOT_GIVEN   # 0 = no cap (LLM_MAX_OUTPUT_TOKENS)
     if route.name == "litellm":
         return lk_openai.LLM(model=route.model, base_url=route.base_url, api_key=route.api_key, timeout=timeout,
-                             max_completion_tokens=cap)
+                             max_completion_tokens=cap,
+                             **({"extra_body": CACHE_SYSTEM_PROMPT} if _cacheable(route.model, prompt_cache) else {}))
     if route.name == "emergent":  # Emergent universal key: only reachable from Emergent's own servers
         return lk_openai.LLM(model=route.model, base_url=proxy_url() + "/llm", api_key=route.api_key,
                              timeout=timeout, max_completion_tokens=cap)
     return lk_anthropic.LLM(model=route.model, api_key=route.api_key, max_tokens=cap)
 
 
-def build_llm(cfg: VoiceConfig) -> llm.LLM:
+def picked_llm(choice: CatalogLLM, max_tokens: int = 0, prompt_cache: bool = False) -> llm.LLM:
+    """A model picked on the Talk page (voice/llm_catalog.py), built like the litellm route."""
+    timeout = httpx.Timeout(30.0, connect=5.0)
+    extra: dict = {"max_completion_tokens": max_tokens or NOT_GIVEN}
+    if choice.reasoning_effort:
+        extra["reasoning_effort"] = choice.reasoning_effort
+    body = dict(choice.extra_body)
+    if choice.provider == "litellm" and _cacheable(choice.model, prompt_cache):
+        body.update(CACHE_SYSTEM_PROMPT)
+    if body:
+        extra["extra_body"] = body
+    if choice.provider == "groq":
+        # strict tool schemas off, as the plugin's own helpers do for other OpenAI-compatible vendors (Cerebras)
+        return lk_openai.LLM(model=choice.model, base_url=settings().groq_base_url, api_key=api_key("groq"),
+                             timeout=timeout, _strict_tool_schema=False, **extra)
+    return lk_openai.LLM(model=choice.model, base_url=settings().litellm_base_url, api_key=api_key("litellm"),
+                         timeout=timeout, **extra)
+
+
+def build_llm(cfg: VoiceConfig, choice: CatalogLLM | None = None) -> llm.LLM:
     """Routes in order. A route that sends nothing for attempt_timeout seconds is abandoned for the next one; with a
-    single route it is retried once (a fresh request usually answers in about a second: 16 Oct TTFT p50 1.06 s)."""
-    models = [_one_llm(r, cfg.llm_max_output_tokens) for r in cfg.llm_routes]
+    single route it is retried once (a fresh request usually answers in about a second: 16 Oct TTFT p50 1.06 s).
+    choice: a model picked on the Talk page answers first; the routes stay behind it, so a pick that fails or stalls
+    never leaves the caller in silence."""
+    models = [_one_llm(r, cfg.llm_max_output_tokens, cfg.llm_prompt_cache) for r in cfg.llm_routes]
+    if choice is not None and available(choice):
+        models.insert(0, picked_llm(choice, cfg.llm_max_output_tokens, cfg.llm_prompt_cache))
     return llm.FallbackAdapter(models, attempt_timeout=cfg.llm_attempt_timeout,
                                max_retry_per_llm=1 if len(models) == 1 else 0, retry_interval=0.1)

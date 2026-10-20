@@ -102,6 +102,9 @@ class Settings:
     litellm_base_url: str = field(default_factory=lambda: _env(
         "LITELLM_BASE_URL", "https://litellm.central-infra-apps.emergentagent.com/v1"))
     litellm_api_key: str | None = field(default_factory=lambda: _env("LITELLM_API_KEY"))
+    # Groq (LPU inference): only for models picked on the Talk page (voice/llm_catalog.py); unset = not offered
+    groq_api_key: str | None = field(default_factory=lambda: _env("GROQ_API_KEY"))
+    groq_base_url: str = field(default_factory=lambda: _env("GROQ_BASE_URL", "https://api.groq.com/openai/v1"))
     llm_model: str = field(default_factory=lambda: _env("LLM_MODEL", _default_model()))
     summary_model: str = field(default_factory=lambda: _env("SUMMARY_MODEL", _default_model()))
     # it = real calls; en = demos while the team can't judge Italian. Prompt, opener, read-backs, STT and voice follow.

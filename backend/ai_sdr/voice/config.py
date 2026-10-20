@@ -146,6 +146,10 @@ class VoiceConfig:
     # token p50 1.61 s on vs 1.04 s off, same scripted call), because the warm-up competes with the early (preemptive)
     # LLM request for a connection. Worth re-testing on a server close to the LLM proxy.
     warm_llm: bool = field(default=False)
+    # LiteLLM marks the system prompt cacheable for Claude: Anthropic then reads the tools + system prompt (~10.7k of a
+    # request's ~11.1k tokens) from its cache instead of processing them again. 20 Oct pod A/B, Haiku, 15 requests
+    # each: first token p50 0.58 -> 0.50 s, first sentence p95 0.93 -> 0.80 s; cached tokens cost a tenth.
+    llm_prompt_cache: bool = field(default=True)
     # LiveKit expressive mode: the LLM adds emotion/pace/laugh tags that the voice performs. Only voices that can
     # perform them use it (LiveKit Inference TTS such as inworld/inworld-tts-2 or cartesia/sonic-3.6, alone in the
     # chain); LiveKit switches it off by itself for Deepgram, ElevenLabs and fallback chains.
@@ -183,6 +187,7 @@ class VoiceConfig:
             "turn_unlikely_threshold": dict(self.turn_unlikely_threshold),
             "ambience": self.ambience if self.ambience == "off" else f"{self.ambience}@{self.ambience_volume}",
             "typing_sound": self.typing_sound, "warm_llm": self.warm_llm, "tts_expressive": self.tts_expressive,
+            "llm_prompt_cache": self.llm_prompt_cache,
         }
 
 
@@ -337,6 +342,7 @@ def load() -> VoiceConfig:
         typing_sound=_env("TYPING_SOUND", "1") == "1",
         typing_volume=_float("TYPING_VOLUME", 0.5),
         warm_llm=_env("LLM_WARM_ON_SPEECH", "0") == "1",
+        llm_prompt_cache=_env("LLM_PROMPT_CACHE", "1") != "0",
         tts_expressive=_env("TTS_EXPRESSIVE", "0") == "1",
     )
     validate(cfg)
