@@ -356,6 +356,9 @@ html[data-talk-theme="dark"] .talk {
   font-weight: 500;
   white-space: nowrap;
 }
+.chip-link { display: inline-flex; align-items: center; gap: 3px; color: var(--ink); text-decoration: none; transition: border-color 0.18s var(--ease); }
+.chip-link:hover { border-color: var(--hairline-strong); }
+.chip-link svg { width: 12px; height: 12px; stroke-width: 1.75; }
 .control-actions { display: flex; flex: none; align-items: center; gap: 8px; }
 
 /* transcript and actions */
@@ -504,6 +507,9 @@ html[data-talk-theme="dark"] .talk {
 }
 
 @media (max-width: 600px) {
+  /* the links wrap under the title instead of pushing the page sideways */
+  .topbar { flex-wrap: wrap; height: auto; min-height: 60px; padding: 10px 0; row-gap: 2px; }
+  .topbar-nav { flex-wrap: wrap; margin-left: -10px; }
   .setup { grid-template-columns: minmax(0, 1fr); grid-template-areas: "name" "lang" "app" "go"; }
   .setup.with-voice { grid-template-columns: minmax(0, 1fr); grid-template-areas: "name" "lang" "voice" "app" "go"; }
   .segmented label { flex: 1; }

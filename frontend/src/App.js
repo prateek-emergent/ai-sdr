@@ -9,6 +9,9 @@ import {
   ClipboardCheck, Languages, LifeBuoy, Moon, Phone, PhoneCall, PhoneOff, Send, Sun, TriangleAlert, Undo2, Volume2,
 } from "lucide-react";
 import Calls from "./Calls";
+import Quality from "./Quality";
+import Timing, { useTurnTimings } from "./Timing";
+import { API, useLangfuse, useTheme } from "./shared";
 import "./App.css";
 
 // "Talk to Giulia": one click = a fresh LiveKit room with the AI SDR agent in it. Built on LiveKit's own session
@@ -16,9 +19,7 @@ import "./App.css";
 // the hand-written page got wrong (stuck at "connecting", silent audio, no error shown).
 // 20 Oct redesign: monochrome frosted glass, light and dark (direction in .impeccable/surfaces/, system in DESIGN.md).
 // Source of truth: github.com/prateek-emergent/ai-sdr (pulled into the pod; never edit it there).
-const API = process.env.REACT_APP_BACKEND_URL;
 const JOIN_TIMEOUT_MS = 20000;
-const THEME_KEY = "giulia-theme"; // also read by the inline script in public/index.html, before first paint
 const LANGS = [["it", "Italiano"], ["en", "English"]];
 
 const ACTIONS = {
@@ -78,30 +79,6 @@ function useClientEvents() {
   };
 }
 
-// Light or dark: the system's choice until the toggle is used, then the toggle's (remembered per browser)
-function useTheme() {
-  const [chosen, setChosen] = useState(() => { try { return localStorage.getItem(THEME_KEY); } catch (e) { return null; } });
-  const [system, setSystem] = useState(() => (window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
-  useEffect(() => {
-    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
-    if (!mq) return;
-    const onChange = () => setSystem(mq.matches ? "dark" : "light");
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  const theme = chosen === "light" || chosen === "dark" ? chosen : system;
-  useEffect(() => {
-    document.documentElement.dataset.talkTheme = theme;
-    document.querySelector('meta[name="theme-color"]')?.setAttribute("content", theme === "dark" ? "#0a0a0a" : "#f0f0f0");
-  }, [theme]);
-  const toggle = () => {
-    const next = theme === "dark" ? "light" : "dark";
-    setChosen(next);
-    try { localStorage.setItem(THEME_KEY, next); } catch (e) { /* storage blocked: this visit only */ }
-  };
-  return [theme, toggle];
-}
-
 // Keeps a scroll area on its latest line until the reader scrolls up; `away` = they're reading back
 function useStickToBottom(signature) {
   const ref = useRef(null);
@@ -120,9 +97,12 @@ function useStickToBottom(signature) {
   return { ref, onScroll, away, jump };
 }
 
-// /calls is the metrics page; everything else is the "Talk to Giulia" page
+// /calls is the metrics page, /quality how calls are graded; everything else is the "Talk to Giulia" page
 export default function App() {
-  return window.location.pathname.startsWith("/calls") ? <Calls /> : <TalkPage />;
+  const path = window.location.pathname;
+  if (path.startsWith("/calls")) return <Calls />;
+  if (path.startsWith("/quality")) return <Quality />;
+  return <TalkPage />;
 }
 
 function TalkPage() {
@@ -166,6 +146,9 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
   const [error, setError] = useState(null);
   const [actions, setActions] = useState([]);
   const [duration, setDuration] = useState(null);
+  const timings = useTurnTimings(); // each reply's steps, live (Timing.js)
+  const [traceId, setTraceId] = useState(null); // this call's Langfuse trace
+  const langfuse = useLangfuse();
   const startedAt = useRef(null);
   const seenStates = useRef(new Set());
   const room = session.room;
@@ -182,6 +165,8 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
       if (topic !== "sdr.events") return;
       try {
         const ev = JSON.parse(new TextDecoder().decode(payload));
+        if (ev.type === "timing") { timings.add(ev); return; }
+        if (ev.type === "trace") { setTraceId(ev.trace_id || null); return; }
         if (ev.type === "language_switch" && (ev.to === "it" || ev.to === "en")) setCallLang(ev.to);
         if (ev.type === "voice_switch" && !ev.available && ev.voice === "inference") setFellBack(true);
         const row = describe(ev);
@@ -231,6 +216,7 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
 
   async function start() {
     setError(null); setActions([]); setDuration(null); seenStates.current = new Set();
+    timings.reset(); setTraceId(null);
     startedAt.current = null;
     nameRef.current = name.trim();
     langRef.current = lang;
@@ -299,7 +285,9 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
           <span className="brand-sub">Emergent's AI SDR</span>
         </div>
         <nav className="topbar-nav">
+          <a className="nav-link" href="/quality" target="_blank" rel="noreferrer">Quality<ArrowUpRight aria-hidden="true" /></a>
           <a className="nav-link" href="/calls" target="_blank" rel="noreferrer">Calls<ArrowUpRight aria-hidden="true" /></a>
+          {langfuse && <a className="nav-link" href={langfuse.dashboard_url} target="_blank" rel="noreferrer" title="Langfuse dashboard (team members sign in)">Langfuse<ArrowUpRight aria-hidden="true" /></a>}
           <button type="button" className="icon-btn" onClick={toggleTheme} aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}>
             {theme === "dark" ? <Sun aria-hidden="true" /> : <Moon aria-hidden="true" />}
           </button>
@@ -317,6 +305,7 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
                 {phase === "live" && <Elapsed since={startedAt.current} />}
                 <span className="chip">{callLang === "en" ? "English" : "Italiano"}</span>
                 <span className="chip">{voiceChip}</span>
+                {traceId && langfuse && <a className="chip chip-link" href={`${langfuse.trace_url_prefix}${traceId}`} target="_blank" rel="noreferrer" title="This call in Langfuse: opens without signing in">Trace<ArrowUpRight aria-hidden="true" /></a>}
               </div>
               <div className="control-actions">
                 {/* while the browser blocks her audio, hearing her is the main action; the tap is the gesture it wants */}
@@ -351,6 +340,7 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, report }) {
           )}
         </div>
 
+        {phase !== "idle" && <Timing turns={timings.turns} pending={timings.pending} agentState={agent.state} live={phase === "live"} />}
         <div className="panes">
           <Transcript lines={lines} phase={phase} duration={duration} />
           <Actions actions={actions} />
