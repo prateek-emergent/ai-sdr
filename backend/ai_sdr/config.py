@@ -170,6 +170,9 @@ class Settings:
     trace_content: str = field(default_factory=lambda: _env("TRACE_CONTENT", "masked"))
     # turns: only the spans a person reads a call with (Langfuse's free plan counts spans) | all
     trace_spans: str = field(default_factory=lambda: _env("TRACE_SPANS", "turns"))
+    # channels whose traces anyone with the link can open (no Langfuse login): the team's test calls by default,
+    # never real customers unless listed. "all" | "none" | comma list of web, phone, simulation
+    trace_public: str = field(default_factory=lambda: _env("TRACE_PUBLIC", "web,simulation"))
     # grade every finished call (evals/watch.py, started by the web backend)
     evals_auto: bool = field(default_factory=lambda: _bool("EVALS_AUTO", True))
     eval_judge_model: str = field(default_factory=lambda: _env("EVAL_JUDGE_MODEL", _eval_model("judge")))

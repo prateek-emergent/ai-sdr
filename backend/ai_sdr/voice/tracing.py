@@ -187,9 +187,18 @@ def enabled() -> bool:
     return _provider is not None
 
 
+def public_channel(channel: str, s: Settings | None = None) -> bool:
+    """TRACE_PUBLIC: whose traces open without a Langfuse login (default the team's tests: web and simulation;
+    real customers' phone calls stay members-only)."""
+    spec = (s or settings()).trace_public
+    return spec == "all" or channel in {c.strip() for c in spec.split(",")}
+
+
 def call_started(room: str, *, channel: str, language: str, version: str, environment: str = "",
-                 user: str | None = None, tags: list[str] | None = None, **metadata: Any) -> None:
-    """Label everything this call traces from here on (call before session.start)."""
+                 user: str | None = None, tags: list[str] | None = None, public: bool | None = None,
+                 **metadata: Any) -> None:
+    """Label everything this call traces from here on (call before session.start). public: anyone with the trace's
+    link can open it, no Langfuse login (default: TRACE_PUBLIC for this channel)."""
     if _provider is None:
         return
     attributes: dict[str, Any] = {
@@ -202,6 +211,8 @@ def call_started(room: str, *, channel: str, language: str, version: str, enviro
     }
     if environment:
         attributes["langfuse.environment"] = environment
+    if public_channel(channel) if public is None else public:
+        attributes["langfuse.trace.public"] = True
     if user:
         attributes["langfuse.user.id"] = user
     for key, value in metadata.items():

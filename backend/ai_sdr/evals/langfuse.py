@@ -19,6 +19,36 @@ log = logging.getLogger("ai_sdr.evals")
 TIMINGS = ("e2e_p50", "e2e_p95", "llm_ttft_p50", "eot_p50")
 
 
+_project: dict | None = None
+
+
+def project() -> dict | None:
+    """The Langfuse project the keys belong to ({id, name}), for links; None when Langfuse is off or unreachable.
+    Asked once per process."""
+    global _project
+    s = settings()
+    if _project is None and s.langfuse_enabled:
+        try:
+            r = httpx.get(f"{s.langfuse_host}/api/public/projects", timeout=5,
+                          auth=(s.langfuse_public_key, s.langfuse_secret_key))
+            data = (r.json().get("data") or []) if r.status_code == 200 else []
+            if data:
+                _project = {"id": data[0]["id"], "name": data[0].get("name")}
+        except (httpx.HTTPError, ValueError):
+            log.warning("langfuse project lookup failed", exc_info=True)
+    return _project
+
+
+def links() -> dict:
+    """What a page needs to link into Langfuse: the project's dashboard (members log in) and the base of a trace's
+    address (a public trace opens for anyone)."""
+    s = settings()
+    p = project()
+    base = f"{s.langfuse_host}/project/{p['id']}" if p else None
+    return {"enabled": bool(p), "host": s.langfuse_host, "project": p, "dashboard_url": base,
+            "trace_url_prefix": f"{base}/traces/" if base else None, "public_channels": s.trace_public}
+
+
 def _id(room: str, name: str) -> str:
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"ai-sdr/{room}/{name}"))
 
