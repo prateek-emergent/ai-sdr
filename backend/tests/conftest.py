@@ -4,7 +4,13 @@ import os
 import sys
 from pathlib import Path
 
+import dotenv
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+# Never read a real backend/.env (20 Oct: a copy pulled from the pod set TTS_MIN_SENTENCE_LEN=6 and
+# STT_PROVIDER=deepgram, and the default tests failed). Patched before ai_sdr.config imports load_dotenv.
+dotenv.load_dotenv = lambda *args, **kwargs: False
 
 for key, value in {
     "LIVEKIT_URL": "wss://example.invalid", "LIVEKIT_API_KEY": "test", "LIVEKIT_API_SECRET": "test",
