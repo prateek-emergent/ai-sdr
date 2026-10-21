@@ -197,12 +197,13 @@ def _start_call(ctx: JobContext, channel: str, call_id: Any = None, tts_request:
     if llm_choice is not None:
         _watch_llm(built.session, llm_choice, telemetry, notify)
     if notify is not None:
-        # 21 Oct: the page said "Agent did not join the room" for calls whose STT died after the greeting. Best
-        # effort: the session deletes the room right after an unrecoverable error.
-        def failed(ev) -> None:
-            if not getattr(ev.error, "recoverable", True):
+        # 21 Oct: the page said "Agent did not join the room" for calls whose STT died after the greeting. Sent when
+        # the session closes on an error (LiveKit first rebuilds a failed engine up to 3 times, so an earlier error
+        # can still recover); best effort, the room is deleted right after.
+        def closed(ev) -> None:
+            if ev.error is not None:
                 live.send_soon(notify, "call_error", {"part": getattr(ev.error, "type", None)})
-        built.session.on("error", failed)
+        built.session.on("close", closed)
     # where the time before the first word went (17 Oct: 2 s on preview vs 0.5 s on the laptop)
     telemetry.event("startup", **_STARTUP)
     controller = CallController(built.session, telemetry, language)

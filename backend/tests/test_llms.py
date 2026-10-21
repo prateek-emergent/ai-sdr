@@ -150,6 +150,19 @@ def test_endpoints(client, no_groq):
     assert s["overall"]["stt"]["p50"] == 0.3
 
 
+def test_platform_keys_noted_before_env_is_read():
+    """21 Oct: server.py imported llm_catalog (ai_sdr.config reads .env when imported) before noting the platform's
+    keys, so every .env key looked platform-provided and the pod's supervisor ignored .env edits."""
+    import ast
+    from pathlib import Path
+
+    body = ast.parse((Path(__file__).resolve().parents[1] / "server.py").read_text()).body
+    noted = next(n.lineno for n in body if isinstance(n, ast.Assign)
+                 and any(getattr(t, "id", None) == "_PLATFORM_KEYS" for t in n.targets))
+    first = min(n.lineno for n in body if isinstance(n, ast.ImportFrom) and (n.module or "").startswith("ai_sdr"))
+    assert noted < first
+
+
 def test_claude_prompt_is_cached_through_litellm(monkeypatch, groq_key):
     from ai_sdr.voice.providers import CACHE_SYSTEM_PROMPT
 

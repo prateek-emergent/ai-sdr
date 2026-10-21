@@ -32,15 +32,17 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from livekit import api
 from pydantic import BaseModel, Field
 
-from ai_sdr.voice.catalog import BY_ID as VOICE_CATALOG, public as voice_catalog
-from ai_sdr.voice import llm_catalog
-
 ROOT = Path(__file__).parent
 # Settings the platform itself provides (on the deployed app: Emergent's Secrets panel) are in the environment before
 # .env is read; remember their NAMES so the voice supervisor never lets the deployed app's frozen .env copy override
-# them (19 Oct: prod's worker used the old ElevenLabs + deleted LiteLLM keys from that copy).
+# them (19 Oct: prod's worker used the old ElevenLabs + deleted LiteLLM keys from that copy). Taken before the ai_sdr
+# imports: ai_sdr.config reads .env when imported (21 Oct: with llm_catalog imported first, every .env key looked
+# platform-provided, and the preview pod's supervisor ignored .env edits until the pod restarted).
 _PLATFORM_KEYS = set(os.environ)
 load_dotenv(ROOT / ".env")
+
+from ai_sdr.voice.catalog import BY_ID as VOICE_CATALOG, public as voice_catalog  # noqa: E402
+from ai_sdr.voice import llm_catalog  # noqa: E402
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("ai-sdr-backend")
 
