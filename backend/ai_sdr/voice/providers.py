@@ -10,7 +10,7 @@ from collections.abc import Callable
 import httpx
 from livekit.agents import NOT_GIVEN, inference, llm, stt, tts
 from livekit.plugins import anthropic as lk_anthropic
-from livekit.plugins import deepgram, elevenlabs, soniox
+from livekit.plugins import cartesia, deepgram, elevenlabs, soniox
 from livekit.plugins import openai as lk_openai
 
 from ..config import settings
@@ -55,7 +55,18 @@ def build_stt(cfg: VoiceConfig, language: str) -> stt.STT:
     return stt.FallbackAdapter(engines, attempt_timeout=cfg.stt_timeout, max_retry_per_stt=0, retry_interval=0.5)
 
 
+def _cartesia(cfg: VoiceConfig, voice: str, language: str, model: str | None = None) -> tts.TTS:
+    """Cartesia with our own key. Sentences are cut like ElevenLabs' (TTS_MIN_SENTENCE_LEN): a short first sentence
+    goes to the voice on its own instead of waiting for the next one."""
+    from livekit.agents.tokenize import blingfire
+    return cartesia.TTS(model=model or cfg.cartesia_model, voice=voice, language=language,
+                        api_key=cfg.cartesia_api_key,
+                        tokenizer=blingfire.SentenceTokenizer(min_sentence_len=cfg.tts_min_sentence_len))
+
+
 def _one_tts(cfg: VoiceConfig, name: str, language: str) -> tts.TTS:
+    if name == "cartesia":
+        return _cartesia(cfg, cfg.cartesia_voice_ids[language], language)
     if name == "elevenlabs":
         from livekit.agents.tokenize import blingfire
         return elevenlabs.TTS(voice_id=cfg.elevenlabs_voice_ids[language], model=cfg.elevenlabs_model,
@@ -72,7 +83,12 @@ def catalog_tts(cfg: VoiceConfig, choice: CatalogVoice, language: str) -> tts.TT
     project's inference credit can run out, and then the call carries on in Deepgram's voice."""
     if choice.provider == "deepgram":
         return deepgram.TTS(model=choice.model, api_key=cfg.deepgram_api_key)
-    picked = inference.TTS(model=choice.model, voice=choice.voice, language=language)
+    if choice.model.startswith("cartesia/") and cfg.cartesia_api_key and language in cfg.cartesia_voice_ids:
+        # 21 Oct: a language with its own Cartesia voice (English) uses our Cartesia key for the other Cartesia
+        # picks too, instead of LiveKit Inference's (out of credit)
+        picked = _cartesia(cfg, choice.voice, language, model=choice.model.split("/", 1)[1])
+    else:
+        picked = inference.TTS(model=choice.model, voice=choice.voice, language=language)
     if not cfg.deepgram_api_key:
         return picked
     return tts.FallbackAdapter([picked, _one_tts(cfg, "deepgram", language)], max_retry_per_tts=0)
@@ -98,7 +114,8 @@ def tts_chain_for(cfg: VoiceConfig, requested: list[str] | None, elevenlabs_left
                   language: str | None = None) -> tuple[str, ...]:
     """The configured voice chain, or a test call's override (the probe asks for Deepgram so automated runs don't
     spend ElevenLabs credits). An override naming a voice without its key falls back to the configured chain. A
-    language with no ElevenLabs voice of its own starts on the next voice."""
+    language with no ElevenLabs or Cartesia voice of its own starts on the next voice (21 Oct: Cartesia Amber speaks
+    English, Italian starts on Deepgram)."""
     language = language or cfg.language
     if not requested:
         chain = cfg.tts_chain
@@ -108,10 +125,12 @@ def tts_chain_for(cfg: VoiceConfig, requested: list[str] | None, elevenlabs_left
             chain = tuple(n for n in chain if n != "elevenlabs") or chain
     else:
         ok = {"deepgram": bool(cfg.deepgram_api_key), "livekit": True,
-              "elevenlabs": bool(cfg.elevenlabs_api_key and cfg.elevenlabs_voice_ids)}
+              "elevenlabs": bool(cfg.elevenlabs_api_key and cfg.elevenlabs_voice_ids),
+              "cartesia": bool(cfg.cartesia_api_key and cfg.cartesia_voice_ids)}
         chain = tuple(n for n in requested if ok.get(n)) or cfg.tts_chain
-    if language not in cfg.elevenlabs_voice_ids:
-        chain = tuple(n for n in chain if n != "elevenlabs") or ("deepgram",)
+    for name, voices in (("elevenlabs", cfg.elevenlabs_voice_ids), ("cartesia", cfg.cartesia_voice_ids)):
+        if language not in voices:
+            chain = tuple(n for n in chain if n != name) or ("deepgram",)
     return chain
 
 

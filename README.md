@@ -17,6 +17,8 @@ Decisions and their reasons: `decisions.md`. In `backend/.env` (never committed)
 | `SONIOX_API_KEY` | — | Turns on Soniox speech-to-text (Italian + English in one stream), Deepgram stays as fallback. If `STT_PROVIDER` is set, remove it or set `STT_CHAIN=soniox,deepgram`. |
 | `STT_BACKUP` | `1` | Speech-to-text never runs alone: Deepgram (with its key) and LiveKit Inference go behind the configured engine, and the call switches in ~0.1 s if it fails. `0` keeps `STT_CHAIN` / `STT_PROVIDER` exactly as written. |
 | `ELEVENLABS_VOICE_ID_IT` / `_EN` | `ELEVENLABS_VOICE_ID` | Giulia's voice per language. A language without one uses Deepgram's voice. |
+| `CARTESIA_API_KEY` / `CARTESIA_VOICE_ID_EN` | — | Cartesia with our own key (21 Oct: English = "Amber", `a7a59115-2425-4192-844c-1e98ec7d6877`). Put it first in `TTS_CHAIN` (`cartesia,deepgram`): Deepgram speaks if Cartesia fails. A language without a Cartesia voice id starts on the next voice (Italian → Deepgram). English Cartesia picks on the Talk page use this key too. |
+| `CARTESIA_MODEL` | `sonic-3.6` | Cartesia model (the one the Talk page's Cartesia voices were chosen on). |
 | `AGENT_LANGUAGE` / `AGENT_LANGUAGES` | `it` / `it,en` | Default call language / languages a call may switch between. |
 | `HUBSPOT_API_KEY` | — | Also feeds the customer card read at dial time (`CARD_TIMEOUT_S`, default 3). |
 | `HUBSPOT_SUPPORT_OWNER_ID` | meeting owner | Who gets the task when a call logs a support issue. |

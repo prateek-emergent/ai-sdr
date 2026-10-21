@@ -81,10 +81,13 @@ class VoiceConfig:
     deepgram_language: str              # multi (Italian + English in one stream) | call (the call's starting language)
 
     # voice: primary, then fallbacks in order, one voice per language
-    tts_chain: tuple[str, ...]          # e.g. ("elevenlabs", "deepgram")
+    tts_chain: tuple[str, ...]          # e.g. ("cartesia", "deepgram")
     elevenlabs_api_key: str | None
     elevenlabs_voice_ids: dict[str, str]  # language -> voice id; a language without one starts on the next voice
     elevenlabs_model: str
+    cartesia_api_key: str | None
+    cartesia_voice_ids: dict[str, str]  # language -> voice id, same rule as ElevenLabs
+    cartesia_model: str
     deepgram_voices: dict[str, str]     # language -> aura-2 voice
     livekit_tts_model: str
     livekit_tts_voice: str
@@ -168,6 +171,7 @@ class VoiceConfig:
             "stt_keyterms": list(self.stt_keyterms), "deepgram_language": self.deepgram_language,
             "tts_chain": list(self.tts_chain), "elevenlabs_model": self.elevenlabs_model,
             "elevenlabs_voice_languages": sorted(self.elevenlabs_voice_ids),
+            "cartesia_model": self.cartesia_model, "cartesia_voice_languages": sorted(self.cartesia_voice_ids),
             "deepgram_voices": dict(self.deepgram_voices),
             "pronunciations": {lang: len(table) for lang, table in self.pronunciations.items()},
             "llm_routes": [f"{r.name}:{r.model}" for r in self.llm_routes],
@@ -274,6 +278,12 @@ def load() -> VoiceConfig:
         # 0.60 s for Flash v2.5; works on the free plan with built-in voices). Streams via ElevenLabs' text-to-dialogue
         # websocket, which the plugin picks automatically for eleven_v3*/eleven_v4* models.
         elevenlabs_model=_env("ELEVENLABS_MODEL", "eleven_v4_turbo"),
+        # 21 Oct: Cartesia with our own key (LiveKit Inference's Cartesia is out of the free credit). English speaks
+        # "Amber" (CARTESIA_VOICE_ID_EN); Italian has no Cartesia voice, so it starts on the next voice (Deepgram).
+        # Sonic 3.6: the model the Talk page's Cartesia voices were picked on (Artificial Analysis arena #4).
+        cartesia_api_key=_env("CARTESIA_API_KEY"),
+        cartesia_voice_ids={x: v for x in langs if (v := _env(f"CARTESIA_VOICE_ID_{x.upper()}"))},
+        cartesia_model=_env("CARTESIA_MODEL", "sonic-3.6"),
         deepgram_voices={x: _env(f"DEEPGRAM_VOICE_{x.upper()}") or DEEPGRAM_VOICES.get(x, DEEPGRAM_VOICES["en"])
                          for x in langs},
         livekit_tts_model=s.inference_tts,
@@ -364,13 +374,16 @@ def _thresholds(raw: str) -> dict[str, float]:
 
 
 def _default_tts_chain() -> str:
-    """ElevenLabs first when it is configured (more natural voice), Deepgram always as the fallback."""
+    """Cartesia, then ElevenLabs, when they are configured (more natural voices), Deepgram always as the fallback."""
     if _env("TTS_PROVIDER") == "livekit":
         return "livekit"
+    chain = []
+    if _env("CARTESIA_API_KEY") and any(_env(f"CARTESIA_VOICE_ID_{x.upper()}") for x in LANGUAGES):
+        chain.append("cartesia")
     voices = [_env(f"ELEVENLABS_VOICE_ID_{x.upper()}") for x in LANGUAGES] + [_env("ELEVENLABS_VOICE_ID")]
     if (_env("ELEVENLABS_API_KEY") or _env("ELEVEN_API_KEY")) and any(voices):
-        return "elevenlabs,deepgram"
-    return "deepgram"
+        chain.append("elevenlabs")
+    return ",".join(chain + ["deepgram"])
 
 
 def _default_stt_chain() -> str:
@@ -419,15 +432,19 @@ def validate(cfg: VoiceConfig) -> None:
     if not cfg.tts_chain:
         problems.append("TTS_CHAIN is empty")
     for t in cfg.tts_chain:
-        if t not in ("elevenlabs", "deepgram", "livekit"):
-            problems.append(f"unknown TTS {t!r} in TTS_CHAIN (elevenlabs | deepgram | livekit)")
+        if t not in ("cartesia", "elevenlabs", "deepgram", "livekit"):
+            problems.append(f"unknown TTS {t!r} in TTS_CHAIN (cartesia | elevenlabs | deepgram | livekit)")
+        if t == "cartesia" and not (cfg.cartesia_api_key and cfg.cartesia_voice_ids):
+            problems.append("TTS cartesia needs CARTESIA_API_KEY and CARTESIA_VOICE_ID[_EN|_IT]")
         if t == "elevenlabs" and not (cfg.elevenlabs_api_key and cfg.elevenlabs_voice_ids):
             problems.append("TTS elevenlabs needs ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID[_EN|_IT]")
         if t == "deepgram" and not cfg.deepgram_api_key:
             problems.append("TTS deepgram needs DEEPGRAM_API_KEY")
+    per_language = {"elevenlabs": cfg.elevenlabs_voice_ids, "cartesia": cfg.cartesia_voice_ids}
     for x in cfg.languages:  # every language needs at least one voice that can speak it
-        if cfg.tts_chain == ("elevenlabs",) and x not in cfg.elevenlabs_voice_ids:
-            problems.append(f"no voice for {x!r}: set ELEVENLABS_VOICE_ID_{x.upper()} or add deepgram to TTS_CHAIN")
+        if cfg.tts_chain and all(t in per_language and x not in per_language[t] for t in cfg.tts_chain):
+            problems.append(f"no voice for {x!r}: set its ELEVENLABS_VOICE_ID_{x.upper()} / CARTESIA_VOICE_ID_"
+                            f"{x.upper()} or add deepgram to TTS_CHAIN")
     if cfg.vad_min_silence < VAD_MIN_SILENCE_FLOOR:
         problems.append(f"VAD_MIN_SILENCE_S must be >= {VAD_MIN_SILENCE_FLOOR} (LiveKit's turn detector needs it)")
     if cfg.filler_delay < 0:

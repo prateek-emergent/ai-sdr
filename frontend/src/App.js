@@ -43,7 +43,7 @@ function describe(ev) {
   if (ev.type === "support_issue") return { Icon: LifeBuoy, label: "Support issue logged", detail: [ev.kind, ev.summary].filter(Boolean).join(" · ") };
   if (ev.type === "error") return { Icon: TriangleAlert, label: "Calendar problem", detail: ev.error || ev.where };
   if (ev.type === "voice_switch") return ev.available ? null
-    : { Icon: Volume2, label: "Voice fell back to Deepgram", detail: "the picked voice isn't available right now" };
+    : { Icon: Volume2, label: "Voice fell back to Deepgram", detail: "Giulia's first voice isn't available right now" };
   if (ev.type === "llm_switch") return { Icon: Brain, label: ev.available ? "Picked model is back" : "Model fell back to the default",
     detail: ev.available ? ev.model : `${ev.model} failed or was too slow to start` };
   if (ev.type !== "tool_call") return null;
@@ -178,7 +178,7 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, llmRef, report }) {
         if (ev.type === "timing") { timings.add(ev); return; }
         if (ev.type === "trace") { setTraceId(ev.trace_id || null); return; }
         if (ev.type === "language_switch" && (ev.to === "it" || ev.to === "en")) setCallLang(ev.to);
-        if (ev.type === "voice_switch" && !ev.available && ev.voice === "inference") setFellBack(true);
+        if (ev.type === "voice_switch" && !ev.available && ev.voice !== "deepgram") setFellBack(true);
         if (ev.type === "llm_switch") setLlmFellBack(!ev.available);
         if (ev.type === "call_error") {   // sent just before Giulia's side ends the call
           report.add("call_error", { part: ev.part });
