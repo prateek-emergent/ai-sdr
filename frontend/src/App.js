@@ -34,6 +34,9 @@ const ACTIONS = {
   record_qualification: [ClipboardCheck, "Qualification recorded"],
 };
 
+// the part a call_error names (the agent session's error type)
+const FAILED_PART = { stt_error: "Giulia's speech recognition", llm_error: "Giulia's language model", tts_error: "Giulia's voice" };
+
 // One row of "What Giulia did" for an sdr.events message, or null for events the page doesn't show
 function describe(ev) {
   if (ev.type === "language_switch") return { Icon: Languages, label: ev.to === "en" ? "Switched to English" : "Switched to Italian" };
@@ -177,6 +180,11 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, llmRef, report }) {
         if (ev.type === "language_switch" && (ev.to === "it" || ev.to === "en")) setCallLang(ev.to);
         if (ev.type === "voice_switch" && !ev.available && ev.voice === "inference") setFellBack(true);
         if (ev.type === "llm_switch") setLlmFellBack(!ev.available);
+        if (ev.type === "call_error") {   // sent just before Giulia's side ends the call
+          report.add("call_error", { part: ev.part });
+          setError(`${FAILED_PART[ev.part] || "Something on Giulia's side"} stopped working, so the call ended. Please try again in a moment.`);
+          return;
+        }
         const row = describe(ev);
         if (row) setActions((a) => [...a, { at: new Date(), ...row }]);
       } catch (e) { /* not ours */ }
@@ -214,10 +222,15 @@ function Call({ session, nameRef, langRef, appRef, voiceRef, llmRef, report }) {
       report.add("agent_state", { state: agent.state });
     }
     if (agent.state === "failed") {
-      const why = (agent.failureReasons || []).join(" ") || "Giulia didn't join.";
       report.add("agent_failed", { reasons: agent.failureReasons });
       report.flush();
-      setError(`${why} Please try again in a moment.`);
+      // LiveKit's 20 s join check also fires after a call that has already ended, and then says the agent never
+      // joined (21 Oct: Giulia spoke, her side ended the call at 5 s, and the page blamed the join)
+      if (phase !== "ended") {
+        const joined = ["listening", "thinking", "speaking"].some((s) => seenStates.current.has(s));
+        const why = joined ? "Giulia's line dropped." : (agent.failureReasons || []).join(" ") || "Giulia didn't join.";
+        setError(`${why} Please try again in a moment.`);
+      }
       session.end();
     }
   }, [agent.state, phase]); // eslint-disable-line react-hooks/exhaustive-deps

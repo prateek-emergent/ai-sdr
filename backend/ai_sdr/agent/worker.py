@@ -193,8 +193,16 @@ def _start_call(ctx: JobContext, channel: str, call_id: Any = None, tts_request:
     _STARTUP["build_session_s"] = round(time.monotonic() - t, 3)
     telemetry.turn_detector = built.turn_detector
     telemetry.attach(built.session)
+    _watch_stt(built.session.stt, telemetry, language)
     if llm_choice is not None:
         _watch_llm(built.session, llm_choice, telemetry, notify)
+    if notify is not None:
+        # 21 Oct: the page said "Agent did not join the room" for calls whose STT died after the greeting. Best
+        # effort: the session deletes the room right after an unrecoverable error.
+        def failed(ev) -> None:
+            if not getattr(ev.error, "recoverable", True):
+                live.send_soon(notify, "call_error", {"part": getattr(ev.error, "type", None)})
+        built.session.on("error", failed)
     # where the time before the first word went (17 Oct: 2 s on preview vs 0.5 s on the laptop)
     telemetry.event("startup", **_STARTUP)
     controller = CallController(built.session, telemetry, language)
@@ -224,6 +232,16 @@ def _watch_llm(session, choice: CatalogLLM, telemetry: CallTelemetry, notify) ->
     session.llm.on("llm_availability_changed", switched)
 
 
+def _watch_stt(engine, telemetry: CallTelemetry, language: str) -> None:
+    """Record every switch of the speech-to-text chain (21 Oct: LiveKit Inference out of credit, Deepgram took over)."""
+    def switched(ev) -> None:
+        who = type(ev.stt).__module__.split(".")[-2]   # inference | deepgram | soniox
+        telemetry.event("stt_switch", language=language, stt=who, available=ev.available)
+        log.warning("speech-to-text %s %s", who, "is back" if ev.available else "failed, the next one listens")
+    if engine is not None and hasattr(engine, "on"):
+        engine.on("stt_availability_changed", switched)
+
+
 async def _start_texture(ctx: JobContext, controller: CallController) -> None:
     """Room tone and typing (voice/texture.py): needs the connected room, and never holds up the opener."""
     texture_ = texture.Texture(CFG)
@@ -240,6 +258,7 @@ def _agent(actions: CallActions, recorder, controller: CallController, voices: V
     def hear(lang: str):
         if lang not in hearing:
             hearing[lang] = build_stt(CFG, lang)
+            _watch_stt(hearing[lang], controller.telemetry, lang)
         return hearing[lang]
 
     return SDRAgent(actions, instructions_for(language), recorder, controller, language=language,

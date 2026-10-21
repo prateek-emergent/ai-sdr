@@ -148,7 +148,7 @@ async def test_pronunciations_whole_words_across_chunks():
 # ---- voices and speech-to-text
 def test_voice_config_defaults_and_floor(monkeypatch):
     cfg = voice_config.load()
-    assert cfg.languages == ("it", "en") and cfg.stt_chain == ("soniox", "deepgram")
+    assert cfg.languages == ("it", "en") and cfg.stt_chain == ("soniox", "deepgram", "livekit")
     assert cfg.vad_min_silence == 0.35 and cfg.soniox_max_endpoint_delay_ms == 500
     assert cfg.elevenlabs_voice_ids == {"it": "voice-it", "en": "voice-en"}
     monkeypatch.setenv("VAD_MIN_SILENCE_S", "0.2")
@@ -173,6 +173,43 @@ def test_stt_chain_is_bilingual():
     assert primary._params.context.terms == ["Emergent"]
     assert stt.capabilities.aligned_transcript == "chunk"  # adaptive interruption keeps working
     assert build_stt(cfg, "en")._stt_instances[0]._params.language_hints == ["en", "it"]
+
+
+def test_stt_always_has_a_backup(monkeypatch):
+    """21 Oct: the deployed app's only STT (LiveKit Inference) answered 429 once its free credit ran out, and every
+    call died 5 s in. A single configured engine now gets the other one behind it."""
+    monkeypatch.setenv("STT_PROVIDER", "livekit")
+    cfg = voice_config.load()
+    assert cfg.stt_chain == ("livekit", "deepgram")
+    stt = build_stt(cfg, "it")
+    assert [type(s).__module__.split(".")[-2] for s in stt._stt_instances] == ["inference", "deepgram"]
+    assert stt.capabilities.aligned_transcript == "word"  # adaptive interruption keeps working
+    monkeypatch.setenv("STT_PROVIDER", "deepgram")
+    assert voice_config.load().stt_chain == ("deepgram", "livekit")
+    monkeypatch.setenv("STT_BACKUP", "0")
+    assert voice_config.load().stt_chain == ("deepgram",)
+    monkeypatch.delenv("STT_BACKUP")
+    monkeypatch.delenv("DEEPGRAM_API_KEY")
+    monkeypatch.setenv("TTS_CHAIN", "elevenlabs")
+    monkeypatch.setenv("STT_PROVIDER", "livekit")
+    assert voice_config.load().stt_chain == ("livekit",)  # no Deepgram key, nothing to add
+
+
+def test_stt_switch_is_recorded():
+    from livekit.agents.stt.fallback_adapter import AvailabilityChangedEvent
+
+    from ai_sdr.agent.worker import _watch_stt
+
+    events = []
+
+    class Telemetry:
+        def event(self, name, **fields):
+            events.append((name, fields))
+
+    stt = build_stt(dataclasses.replace(voice_config.load(), stt_chain=("livekit", "deepgram")), "it")
+    _watch_stt(stt, Telemetry(), "it")
+    stt.emit("stt_availability_changed", AvailabilityChangedEvent(stt=stt._stt_instances[0], available=False))
+    assert events == [("stt_switch", {"language": "it", "stt": "inference", "available": False})]
 
 
 def test_deepgram_language():

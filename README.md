@@ -15,6 +15,7 @@ Decisions and their reasons: `decisions.md`. In `backend/.env` (never committed)
 | Setting | Default | What it does |
 |---|---|---|
 | `SONIOX_API_KEY` | — | Turns on Soniox speech-to-text (Italian + English in one stream), Deepgram stays as fallback. If `STT_PROVIDER` is set, remove it or set `STT_CHAIN=soniox,deepgram`. |
+| `STT_BACKUP` | `1` | Speech-to-text never runs alone: Deepgram (with its key) and LiveKit Inference go behind the configured engine, and the call switches in ~0.1 s if it fails. `0` keeps `STT_CHAIN` / `STT_PROVIDER` exactly as written. |
 | `ELEVENLABS_VOICE_ID_IT` / `_EN` | `ELEVENLABS_VOICE_ID` | Giulia's voice per language. A language without one uses Deepgram's voice. |
 | `AGENT_LANGUAGE` / `AGENT_LANGUAGES` | `it` / `it,en` | Default call language / languages a call may switch between. |
 | `HUBSPOT_API_KEY` | — | Also feeds the customer card read at dial time (`CARD_TIMEOUT_S`, default 3). |

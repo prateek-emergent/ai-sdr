@@ -69,7 +69,8 @@ class VoiceConfig:
     languages: tuple[str, ...]          # languages a call may use and switch between
     version: str
 
-    # speech-to-text: providers in order; the first one that works hears the call
+    # speech-to-text: providers in order; the first one that works hears the call (a backup always follows,
+    # _with_backup_stt)
     stt_chain: tuple[str, ...]          # soniox | deepgram | livekit
     stt_model: str                      # Deepgram model (deepgram / livekit entries)
     deepgram_api_key: str | None
@@ -240,8 +241,9 @@ def load() -> VoiceConfig:
     lang = s.agent_language
     langs = _languages(lang)
     tts_chain = tuple(t.strip() for t in (_env("TTS_CHAIN") or _default_tts_chain()).split(",") if t.strip())
-    stt_chain = tuple(t.strip() for t in (_env("STT_CHAIN") or _default_stt_chain()).split(",") if t.strip())
-    sink = _env("REPORT_SINK") or ("mongodb" if _env("MONGO_URL") else "file")
+    stt_chain = _with_backup_stt(
+        tuple(t.strip() for t in (_env("STT_CHAIN") or _default_stt_chain()).split(",") if t.strip()))
+    sink =_env("REPORT_SINK") or ("mongodb" if _env("MONGO_URL") else "file")
     generic_voice = _env("ELEVENLABS_VOICE_ID")
     cfg = VoiceConfig(
         agent_name=s.agent_name,
@@ -379,6 +381,18 @@ def _default_stt_chain() -> str:
         return legacy
     chain = [name for name, key in (("soniox", "SONIOX_API_KEY"), ("deepgram", "DEEPGRAM_API_KEY")) if _env(key)]
     return ",".join(chain) or "deepgram"
+
+
+def _with_backup_stt(chain: tuple[str, ...]) -> tuple[str, ...]:
+    """Never one speech-to-text alone: when it fails, LiveKit closes the session about 5 s into the call. 21 Oct: the
+    deployed app's only STT was LiveKit Inference, which answered 429 once the free monthly credit ran out, and every
+    call died after the greeting. Deepgram (when its key is set) and LiveKit Inference (no key of its own) go after
+    the configured engines; switching costs ~0.1 s (pod probe, 21 Oct). STT_BACKUP=0 keeps the chain as written."""
+    if _env("STT_BACKUP") == "0":
+        return chain
+    backups = [name for name, ok in (("deepgram", bool(_env("DEEPGRAM_API_KEY"))), ("livekit", True))
+               if ok and name not in chain]
+    return chain + tuple(backups)
 
 
 def validate(cfg: VoiceConfig) -> None:
