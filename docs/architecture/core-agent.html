@@ -571,7 +571,7 @@ flowchart LR
   <section id="open">
     <header><span class="eyebrow">Next</span><h2>Open items for the core agent</h2></header>
     <div class="lld"><ul>
-      <li><b>LiteLLM budget:</b> the key is at its $18 cap; the pod runs on the Emergent route (no prompt cache, grader down). About $15 more covers the remaining tests and normal use.</li>
+      <li><b>LiteLLM budget:</b> $18 a day, reset daily (around midnight UTC); every response reports today's spend in <code>x-litellm-key-spend</code>. On the night of 20–21 Oct the research round (~$9.8, on top of the day's other use) ran it out until the reset, and the pod answered on the Emergent route meanwhile. Keep test runs to about $10 a day.</li>
       <li><b>Two concrete slots:</b> one simulation run on the booking scenarios (~$1), then switch SLOT_OFFER=two on.</li>
       <li><b>Shorter silence window</b> (VAD 0.35 → 0.25 s): A/B on real pod calls; could save ~0.1 s on most turns.</li>
       <li><b>A natural outbound opening:</b> LiveKit's built-in answering-machine detection with our own models, the callee speaks first, the opener ready while it rings.</li>
