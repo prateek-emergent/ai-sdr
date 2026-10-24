@@ -70,6 +70,10 @@ SIGNALS: tuple[tuple[str, re.Pattern], ...] = (
                            r"waste of (?:my )?time|not the way you talk|leave me alone|perché mi chiama|"
                            r"chi le ha dato|chi vi ha dato|mi disturba|che fastidio|perdita di tempo)\b",
                 re.I)),
+    ("buying", re.compile(r"\b(talk to (?:an|your|one of your) experts?|speak (?:to|with) (?:an|your) expert|"
+                          r"(?:a |the )?call with (?:an|your) expert|what can (?:the|your) experts? do|can you help "
+                          r"(?:me|us)|parlare con un esperto|una (?:call|chiamata) con un esperto|potete aiutarmi|"
+                          r"cosa possono fare)\b", re.I)),
     ("busy", re.compile(r"\b(i'?m (?:busy|driving|in a meeting)|call (?:me )?(?:back )?later|not a good time|"
                         r"sto guidando|sono occupat[oa]|sono in riunione|mi richiami|non è il momento)\b", re.I)),
     ("goodbye", re.compile(r"\b(bye|goodbye|gotta go|have to go|talk (?:to you )?later|arrivederci|ciao ciao|"
@@ -90,6 +94,20 @@ def _text(item) -> str:
     return (item.text_content or "") if getattr(item, "type", None) == "message" else ""
 
 
+_QUESTION = re.compile(r"[^.!?]*\?")
+
+
+def _questions(messages, turns: int = 6, keep: int = 3) -> list[str]:
+    """Her recent questions (from her last `turns` turns, newest last), so she doesn't ask them again."""
+    out: list[str] = []
+    for item in [m for m in messages if m.role == "assistant"][-turns:]:
+        for q in _QUESTION.findall(_text(item)):
+            q = q.strip()
+            if 3 <= len(q.split()) and q not in out:
+                out.append(q[:80])
+    return out[-keep:]
+
+
 _SAY = {
     "en": {
         "head": "[Call notes: written by your own system from the call so far. The caller didn't say this and "
@@ -102,11 +120,14 @@ _SAY = {
         "cost": "cost or credits",
         "annoyed": "annoyed",
         "busy": "busy",
+        "buying": "interest in an expert call",
         "goodbye": "goodbye",
         "act_competitor": "This comes first: ask, calm and curious, what's pulling them to {name}.",
         "act_leaving": "This comes first: ask what's making them think of leaving.",
         "act_annoyed": "Keep the call: name it in a few words, one line on why you're calling, then a choice.",
         "act_goodbye": "They're leaving: close in one sentence and end the call. No last questions.",
+        "act_buying": "They're interested: offer the expert call or go straight to booking it.",
+        "asked": "Already asked, don't ask again: {qs}.",
         "apologies": "You've apologised {n} time(s) already: no more apologies unless you make a new mistake.",
         "coach": "Coach: {note}",
         "offtrack": "Off-topic for {n} turns: answer briefly and come back to their app or problem.",
@@ -131,12 +152,15 @@ _SAY = {
         "cost": "costi o crediti",
         "annoyed": "fastidio",
         "busy": "ha da fare",
+        "buying": "interesse per una call con un esperto",
         "goodbye": "sta salutando",
         "act_competitor": "Questo viene prima di tutto: chiedi, calma e curiosa, cosa la attira verso {name}.",
         "act_leaving": "Questo viene prima di tutto: chiedi cosa la fa pensare di lasciare.",
         "act_annoyed": "Tieni la chiamata: dai un nome a come si sente in poche parole, una riga sul perché "
                        "chiami, poi una scelta.",
         "act_goodbye": "Sta chiudendo: saluta in una frase e chiudi la chiamata. Niente ultime domande.",
+        "act_buying": "È interessata: proponi la call con l'esperto o passa subito a fissarla.",
+        "asked": "Già chiesto, non chiederlo di nuovo: {qs}.",
         "apologies": "Ti sei già scusata {n} volta/e: niente altre scuse se non sbagli qualcosa di nuovo.",
         "coach": "Coach: {note}",
         "offtrack": "Fuori tema da {n} turni: rispondi in breve e torna alla sua app o al suo problema.",
@@ -210,6 +234,11 @@ class CallNotes:
             lines.append("- " + say["act_leaving"])
         elif "annoyed" in now:
             lines.append("- " + say["act_annoyed"])
+        elif "buying" in now:
+            lines.append("- " + say["act_buying"])
+        asked = _questions(messages)
+        if asked:
+            lines.append("- " + say["asked"].format(qs="; ".join(f'"{q}"' for q in asked)))
         apologies = sum(1 for i in messages if i.role == "assistant" and _APOLOGY.search(_text(i)))
         if apologies:
             lines.append("- " + say["apologies"].format(n=apologies))

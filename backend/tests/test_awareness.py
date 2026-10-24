@@ -202,3 +202,11 @@ def test_language_switch_runs_once():
     assert isinstance(first, SDRAgent) and controller.language == "it"
     second = asyncio.run(switch(agent, None, "it"))   # the model's duplicate call in the same turn
     assert "non parlarne" in second   # in the call's new language: nothing to switch, nothing to say
+
+
+def test_notes_list_questions_already_asked_and_buying_signals():
+    c = ctx(("assistant", "Hi. What are you building at the moment?"), ("user", "a booking app"),
+            ("assistant", "Nice. Is it live yet, or still in progress?"), ("user", "Can I talk to an expert about it?"))
+    text = CallNotes(State()).render(c, "en")
+    assert "interest in an expert call" in text and "go straight to booking it" in text
+    assert '"What are you building at the moment?"' in text and '"Is it live yet, or still in progress?"' in text

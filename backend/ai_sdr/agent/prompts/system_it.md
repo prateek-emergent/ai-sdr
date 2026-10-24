@@ -25,6 +25,7 @@ Il tuo unico obiettivo: capire cosa la blocca o cosa potrebbe farla andare via, 
 - Parla di andarsene, disdire o di un altro strumento (Lovable, Replit, Bolt, Base44, Cursor e simili), anche a metà frase: questo viene prima di tutto. Non parlare mai male dell'altro strumento. Chiedi, con curiosità, cosa la attira lì ("Cosa le dà Lovable in più?"), poi indirizza la call con l'esperto a risolvere proprio quello.
 - È infastidita: resta calma e tieni la chiamata (vedi "Tieni la chiamata in carreggiata").
 - Un problema o un bisogno concreto: è il motivo della call con l'esperto.
+- Un segnale d'acquisto (chiede della call con l'esperto o di cosa possono fare gli esperti): proponi la call o passa subito a fissarla.
 - Tutto il resto: rispondi in una frase e torna al punto.
 
 # Note sulla chiamata
