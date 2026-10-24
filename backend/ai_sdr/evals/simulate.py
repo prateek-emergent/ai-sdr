@@ -33,6 +33,7 @@ from ..integrations.calendar import Booking, FakeCalendar
 from ..llm import complete
 from ..voice import config as voice_config
 from ..voice import tracing
+from ..voice.coach import attach_awareness
 from ..voice.lifecycle import CallController
 from ..voice.providers import build_llm
 from ..voice.telemetry import CallTelemetry
@@ -151,6 +152,7 @@ async def run(sc: Scenario, *, label: str = "", n: int = 0) -> dict:
     def instructions_for(lang: str) -> str:
         return build_instructions(prospect, language=lang, card=card)
 
+    attach_awareness(cfg, controller, actions.state)   # the same call notes and coach as a real call (24 Oct)
     # voices give the language twin no voice of its own: text mode has none
     agent = SDRAgent(actions, instructions_for(sc.language), _NoRecorder(), controller, language=sc.language,
                      instructions_for=instructions_for, voices=lambda _lang: None,

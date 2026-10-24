@@ -34,6 +34,7 @@ from ..voice import config as voice_config
 from ..voice.factory import build_session
 from ..voice.providers import Voices, build_stt, elevenlabs_credits_left
 from ..voice import live, texture, tracing
+from ..voice.coach import attach_awareness
 from ..voice.catalog import BY_ID as VOICE_CATALOG, CatalogVoice
 from ..voice.llm_catalog import BY_ID as LLM_CATALOG, CatalogLLM
 from ..voice.lifecycle import CallController
@@ -255,6 +256,7 @@ def _agent(actions: CallActions, recorder, controller: CallController, voices: V
            instructions_for) -> SDRAgent:
     """The call's first agent; switch_language makes its twins from the same instructions_for and voices."""
     hearing: dict[str, Any] = {}   # speech-to-text per language, built on the first switch into it
+    attach_awareness(CFG, controller, actions.state)   # call notes on each LLM request, and the coach (24 Oct)
 
     def hear(lang: str):
         if lang not in hearing:

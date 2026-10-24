@@ -79,12 +79,30 @@ CHECKS: tuple[Check, ...] = (
     Check("callback_done", False,
           "If the person was busy or asked to be called later, the agent got a precise day and time and scheduled "
           "it with schedule_callback. n/a otherwise."),
+    Check("keeps_control", False,
+          "The agent kept the call on its purpose: an off-topic question or request got a one-sentence answer and a "
+          "question back about the person's app or problem, and it did not follow a third tangent in a row. When the "
+          "person was annoyed or pushed back, it stayed calm and kept the call (named the mood, gave the reason for "
+          "the call, offered a choice) instead of folding: no 'You're absolutely right', 'I apologize', 'What would "
+          "work better for you?' (or Italian equivalents), and at most one apology in the call. n/a if the person "
+          "never drifted, pushed back or got annoyed."),
+    Check("catches_signals", False,
+          "When the person mentioned leaving, cancelling, a competitor (Lovable, Replit, Bolt, Base44, Cursor...) or "
+          "a cost problem, even in a half sentence, the agent picked it up on its next turn: asked what was behind it "
+          "(curious, never knocking the other tool) and tied any expert-call offer to it. Ignoring it, or answering "
+          "it with line-trouble lines, fails. n/a if no such signal came up."),
+    Check("no_false_line_trouble", False,
+          "The agent only said the line was bad ('your voice is breaking up', 'la linea si interrompe') when the "
+          "person's words were genuinely garbled, not for a half sentence that just stopped (then a short 'go on' is "
+          "right), asked at most twice in a row, and read mishearings of the brand ('emergency', 'emergenza') as "
+          "Emergent instead of answering as if there were an emergency. n/a if neither came up."),
     Check("language", False,
           "The agent stayed in the call's language, or switched with switch_language as soon as the person clearly "
           "preferred the other one, and never mixed languages within a turn."),
     Check("clean_close", False,
           "The call ended properly: in a real conversation a last open feedback question in a turn of its own (not "
-          "attached to a booking confirmation; skipped after a refusal, a wrong person or an early callback), "
+          "attached to a booking confirmation; skipped after a refusal, a wrong person, an early callback or once the "
+          "person has said goodbye: then no 'before you go'), "
           "record_qualification before end_call, one goodbye, and an end_call disposition that matches what "
           "happened. n/a if the person hung up first (the transcript's last line says how the call ended)."),
 )

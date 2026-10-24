@@ -19,7 +19,7 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from livekit import rtc
-from livekit.agents import Agent, ModelSettings, RunContext, function_tool, stt as lk_stt, tts as lk_tts
+from livekit.agents import Agent, ModelSettings, RunContext, function_tool, llm, stt as lk_stt, tts as lk_tts
 from livekit.agents.llm import StopResponse, ToolError
 
 from ..voice import live
@@ -88,6 +88,16 @@ class SDRAgent(Agent):
     async def on_enter(self) -> None:
         if self._handoff:  # the first agent of a call says nothing here: CallController.greet speaks the opener
             self.session.generate_reply(instructions=_AFTER_SWITCH[self.language])
+
+    async def llm_node(self, chat_ctx: llm.ChatContext, tools: list[llm.Tool], model_settings: ModelSettings):
+        """The LLM reads a copy of the conversation with mishearings fixed and the call notes attached
+        (voice/call_notes.py, 24 Oct). Done here, not in on_user_turn_completed: editing the session's context there
+        makes LiveKit throw away the reply it started early (preemptive generation)."""
+        notes = self.c.notes
+        if notes is not None:
+            chat_ctx = notes.apply(chat_ctx, self.language)
+        async for chunk in Agent.default.llm_node(self, chat_ctx, tools, model_settings):
+            yield chunk
 
     async def tts_node(self, text: AsyncIterable[str], model_settings: ModelSettings) -> AsyncIterable[rtc.AudioFrame]:
         if self._say_as:  # words the voice says wrong, rewritten just before it (voice/pronunciation.py)
@@ -241,9 +251,12 @@ class SDRAgent(Agent):
         Args:
             language: "it" or "en".
         """
-        if language == self.language:
-            return self.actions._say("Stai già parlando italiano: continua.", "You're already speaking English: "
-                                     "carry on.")
+        if language == self.language or language == self.c.language:
+            # 21 Oct: the model fired switch_language twice in one turn, and the second result ("you're already
+            # speaking Italian") came out as "I'm already speaking Italian" to the caller. A switch in progress (the
+            # first call set c.language) or no switch needed: nothing to say about it.
+            return self.actions._say("Già fatto: non parlarne, continua normalmente.",
+                                     "Already done: don't mention it, just carry on.")
         if self._instructions_for is None or self._voices is None:
             return self.actions._say("In questa chiamata non puoi cambiare lingua: continua in italiano.",
                                      "This call can't switch language: carry on in English.")

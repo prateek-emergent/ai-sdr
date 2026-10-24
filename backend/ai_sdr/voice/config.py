@@ -154,6 +154,11 @@ class VoiceConfig:
     # request's ~11.1k tokens) from its cache instead of processing them again. 20 Oct pod A/B, Haiku, 15 requests
     # each: first token p50 0.58 -> 0.50 s, first sentence p95 0.93 -> 0.80 s; cached tokens cost a tenth.
     llm_prompt_cache: bool = field(default=True)
+    # 24 Oct ("she lacks awareness"): call notes added to each LLM request after the cached prompt (voice/call_notes.py):
+    # user (on the caller's last message) | system (a trailing system message) | off
+    call_notes: str = field(default="user")
+    # a background coach that writes a steering note for the next turn, off the spoken path (voice/coach.py)
+    coach: bool = field(default=False)
     # LiveKit expressive mode: the LLM adds emotion/pace/laugh tags that the voice performs. Only voices that can
     # perform them use it (LiveKit Inference TTS such as inworld/inworld-tts-2 or cartesia/sonic-3.6, alone in the
     # chain); LiveKit switches it off by itself for Deepgram, ElevenLabs and fallback chains.
@@ -192,6 +197,7 @@ class VoiceConfig:
             "turn_unlikely_threshold": dict(self.turn_unlikely_threshold),
             "ambience": self.ambience if self.ambience == "off" else f"{self.ambience}@{self.ambience_volume}",
             "typing_sound": self.typing_sound, "warm_llm": self.warm_llm, "tts_expressive": self.tts_expressive,
+            "call_notes": self.call_notes, "coach": self.coach,
             "llm_prompt_cache": self.llm_prompt_cache,
         }
 
@@ -265,7 +271,9 @@ def load() -> VoiceConfig:
         # LiveKit's turn detector; an early endpoint only makes the words final sooner. Measure with the probe.
         soniox_max_endpoint_delay_ms=_int("SONIOX_MAX_ENDPOINT_DELAY_MS", 500),
         # 17 Oct real call: "Emergent" heard as "Emojin" and "I'm urgent" (the 16 Oct setup misheard it too)
-        stt_keyterms=tuple(k.strip() for k in (_env("STT_KEYTERMS") or "Emergent").split(",") if k.strip()),
+        # 24 Oct: the competitors callers name when they think of leaving, so the STT hears them right
+        stt_keyterms=tuple(k.strip() for k in (_env("STT_KEYTERMS") or "Emergent,Lovable,Replit,Base44").split(",")
+                           if k.strip()),
         # 20 Oct: "call" (the call's language; a language switch gives the new agent its own Deepgram stream).
         # "multi" hears both in one stream, but its transcripts came back unpunctuated ("Dimmi pure", fragments), the
         # turn detector reads punctuation, and 3 of 5 turns waited the full ENDPOINTING_MAX_S in a scripted call.
@@ -355,6 +363,8 @@ def load() -> VoiceConfig:
         typing_volume=_float("TYPING_VOLUME", 0.5),
         warm_llm=_env("LLM_WARM_ON_SPEECH", "0") == "1",
         llm_prompt_cache=_env("LLM_PROMPT_CACHE", "1") != "0",
+        call_notes=_env("CALL_NOTES", "user"),
+        coach=_env("COACH", "0") == "1",
         tts_expressive=_env("TTS_EXPRESSIVE", "0") == "1",
     )
     validate(cfg)
@@ -453,6 +463,8 @@ def validate(cfg: VoiceConfig) -> None:
         problems.append("no LLM route has a key (LITELLM_API_KEY / EMERGENT_LLM_KEY / ANTHROPIC_API_KEY)")
     if cfg.turn_detector_version not in ("v1", "v1-mini"):
         problems.append(f"TURN_DETECTOR must be v1 or v1-mini, not {cfg.turn_detector_version!r}")
+    if cfg.call_notes not in ("user", "system", "off"):
+        problems.append(f"CALL_NOTES must be user, system or off, not {cfg.call_notes!r}")
     if cfg.interruption_mode not in ("adaptive", "vad"):
         problems.append(f"INTERRUPTION_MODE must be adaptive or vad, not {cfg.interruption_mode!r}")
     if not 0 < cfg.endpointing_min < cfg.endpointing_max <= 6:

@@ -154,5 +154,63 @@ SCENARIOS: tuple[Scenario, ...] = (
         "preferred times with request_manual_scheduling (never asks for her email), says the team will email an "
         "invite.",
         ("manual_scheduling",), tools=("request_manual_scheduling",)),
+    # 24 Oct ("she lacks awareness"): the failures seen on real pod calls, 20-21 Oct
+    Scenario(
+        "en_annoyed_purpose", "en", "Rahul", "assignment portal for my students",
+        "A college lecturer who didn't expect the call and is irritated by it at first, but fair: he'll talk if the "
+        "agent stays calm and gets to the point. Short, sharp sentences.",
+        "Start with 'Why are you even calling me?'. Whatever she answers first, say 'No. No. This is not the way you "
+        "talk to us.' If she stays calm and gives a clear reason plus a choice, say 'Okay, two minutes.' Then say "
+        "the portal works but the agent keeps saying bugs are fixed when they aren't. If offered a call with an "
+        "expert about that, accept and take the first time offered. If she grovels or keeps apologising, say "
+        "'Forget it, bye.'",
+        "Doesn't fold: no 'you're absolutely right / I apologize / what would work better'. Names the mood, gives the "
+        "reason for the call in a line, offers a choice; then hears the bug problem, offers an expert call about it "
+        "and books it.",
+        ("meeting_booked",), tools=("book_meeting",), never=("mark_do_not_call",)),
+    Scenario(
+        "en_lovable_switch", "en", "Maya", "booking site for the yoga studio",
+        "Runs a yoga studio; built her booking site on Emergent but finds the live site slow and is trying Lovable. "
+        "Talks in bursts and often stops mid-sentence.",
+        "Say 'I'm thinking of switching to Lovable.' Then a half sentence: 'I don't think Emergent because'. Then "
+        "'Latency wise, the site is'. If she asks about Lovable or the speed, explain the live site is slow for "
+        "customers. If offered a call with an expert to look at the speed, accept and take the first time offered.",
+        "Picks up the Lovable mention at once (asks what's pulling her there, never knocks Lovable), answers the "
+        "half sentences with a short 'go on' instead of line-trouble lines, offers an expert call about the site's "
+        "speed and books it.",
+        ("meeting_booked",), tools=("book_meeting",), never=("mark_do_not_call",)),
+    Scenario(
+        "en_offtopic_drag", "en", "Vikram", "inventory app for the shop",
+        "A shopkeeper who is curious about the AI and keeps testing it with unrelated requests; friendly, not "
+        "hostile, a little playful.",
+        "Say 'Hello? Who is this?'. Then ask her to reply in Hindi. Then 'Do you have my email? What is it?'. Then "
+        "'Reply to me in Italian.' then, after she replies, 'Actually, English is fine.' If she brings you back to "
+        "your app, say it tracks stock for your shop and the credits run out fast. If offered an expert call about "
+        "the credits, say 'maybe later' and, if nudged once, 'okay, Friday afternoon'.",
+        "Answers each off-topic request in one sentence and brings the call back to the app, never switches "
+        "language twice in a row or claims she 'already speaks' a language, doesn't read the email out, gets to the "
+        "credit problem and offers an expert call about it.",
+        ("meeting_booked", "not_now", "not_interested"), never=("mark_do_not_call",)),
+    Scenario(
+        "en_abrupt_bye", "en", "Leo", "perfume store",
+        "Owns an online perfume store; frustrated that a support ticket about checkout has been open a week. Wants "
+        "a date, not sympathy, and leaves abruptly.",
+        "Say the store is live but checkout is broken and your ticket has been open a week. Ask 'By what time will "
+        "it be resolved? I need a date.' After her answer, say 'Okay. Bye bye.' If she keeps talking, say 'Bye.' "
+        "and <hangup>.",
+        "Logs the checkout problem with log_support_issue, sells nothing, doesn't promise a date, and when he says "
+        "bye closes in one sentence with no 'wait, before you go' or extra question.",
+        ("not_now", "not_interested", "other"), tools=("log_support_issue",), never=("book_meeting",)),
+    Scenario(
+        "it_noisy_brand", "it", "Sara", "gestionale per il negozio",
+        "Owns a clothes shop in Verona; built an internal stock tool. Speaks quickly, the line is fine but she trails "
+        "off mid-sentence, and the transcript mishears the brand.",
+        "Say 'Sì, lo sto facendo su emergenza, il gestionale per il negozio.' Then a half sentence: 'Però i crediti "
+        "perché'. Then 'finiscono troppo in fretta, ogni modifica costa'. If offered a call with an expert about the "
+        "credits, accept and take the first time offered.",
+        "Reads 'emergenza' as Emergent (no talk of an emergency), answers the half sentence with a short 'prego' "
+        "instead of line-trouble lines, asks one question about the credits, offers an expert call about them and "
+        "books it.",
+        ("meeting_booked",), tools=("book_meeting",), never=("mark_do_not_call",)),
 )
 BY_ID = {s.id: s for s in SCENARIOS}

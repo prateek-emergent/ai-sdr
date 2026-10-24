@@ -84,7 +84,7 @@ def test_outcome_check():
 
 
 def test_langfuse_scores_are_few_and_stable():
-    grade = {"score": 0.8, "grader": "g1", "judge": "j", "must_failed": [], "notes": {"fix": "x"},
+    grade = {"score": 0.8, "grader": "g2", "judge": "j", "must_failed": [], "notes": {"fix": "x"},
              "checks": {"no_echo": {"verdict": "fail", "reason": "echoed", "quote": "Quindi..."},
                         "language": {"verdict": "pass", "reason": "ok", "quote": ""}},
              "counted": {"turn_words_avg": 12.5}}

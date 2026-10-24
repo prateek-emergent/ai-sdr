@@ -17,7 +17,7 @@ def report(room, *, score=None, checks=None, skipped=None, started="2026-10-20T1
              {"type": "message", "role": "assistant", "content": ["Buongiorno, sono Giulia, l'assistente AI."]},
              {"type": "message", "role": "user", "content": ["Mi richiami domani."]}]}}, **more}
     if score is not None or skipped:
-        r["eval"] = {"grader": "g1", "judge": "j", "took_s": 12.0, "score": score, "skipped": skipped,
+        r["eval"] = {"grader": "g2", "judge": "j", "took_s": 12.0, "score": score, "skipped": skipped,
                      "checks": checks or {}, "failed": [k for k, c in (checks or {}).items() if c["verdict"] == "fail"],
                      "must_failed": []}
     return r

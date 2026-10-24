@@ -48,6 +48,7 @@ class CallController:
         self._llm_failures = 0
         self._recovery_pending = False
         self.texture = None   # the call's background audio (voice/texture.py), set once the room is connected
+        self.notes = None     # what the call has established so far, added to each LLM request (call_notes.py)
 
     @property
     def closing(self) -> bool:

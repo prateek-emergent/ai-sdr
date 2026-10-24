@@ -19,7 +19,7 @@ from .rubric import BY_KEY, CHECKS, MUST, counted, transcript
 
 log = logging.getLogger("ai_sdr.evals")
 
-GRADER_VERSION = "g1"   # bump when the checks change, so trends compare like with like
+GRADER_VERSION = "g2"   # bump when the checks change, so trends compare like with like (g2, 24 Oct: +3 checks)
 
 
 class Verdict(BaseModel):

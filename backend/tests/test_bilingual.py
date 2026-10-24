@@ -170,7 +170,7 @@ def test_stt_chain_is_bilingual():
     primary = stt._stt_instances[0]
     assert type(primary).__module__.startswith("livekit.plugins.soniox")
     assert primary._params.language_hints == ["it", "en"] and primary._params.max_endpoint_delay_ms == 500
-    assert primary._params.context.terms == ["Emergent"]
+    assert primary._params.context.terms == ["Emergent", "Lovable", "Replit", "Base44"]   # 24 Oct: competitors
     assert stt.capabilities.aligned_transcript == "chunk"  # adaptive interruption keeps working
     assert build_stt(cfg, "en")._stt_instances[0]._params.language_hints == ["en", "it"]
 

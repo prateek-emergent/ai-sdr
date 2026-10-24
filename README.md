@@ -107,5 +107,8 @@ python -m ai_sdr.cli evals scenarios
 | Setting | Default | What it does |
 |---|---|---|
 | `LLM_PROMPT_CACHE` | `1` | Claude through LiteLLM reads her tools and prompt (~10.7k of ~11.1k tokens a request) from Anthropic's cache. Pod A/B: first token p50 0.58 → 0.50 s. `0` turns it off. |
+| `CALL_NOTES` | `user` | Call notes added to every LLM request (stage, signals heard like a competitor or "bye", apologies so far, the coach's note), computed in code after the cached prompt, so the prompt cache and LiveKit's early reply stay intact. Also fixes brand mishearings ("emergency" → Emergent) in what the LLM reads. `user` = on the caller's last message, `system` = a trailing system message, `off`. |
+| `COACH` | `0` | A background coach: a small LLM request after Giulia starts speaking reads the call and writes one steering note for her next turn. Never on the spoken path. `1` turns it on. |
+| `STT_KEYTERMS` | `Emergent,Lovable,Replit,Base44` | Words the speech-to-text should expect: the brand and the competitors callers name when they think of leaving. |
 | `GROQ_API_KEY` | — | Offers the Groq models in the Talk page's model picker. |
 | `GROQ_BASE_URL` | `https://api.groq.com/openai/v1` | Groq's OpenAI-compatible address. |
